@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import altair as alt
 
 # Load data
 @st.cache_data
@@ -76,20 +77,36 @@ for col in filtered_df.columns:
 summary_df = pd.DataFrame(summary_data)
 st.dataframe(summary_df)
 
-# Dynamic Visualization
-st.subheader("📊 Custom Visualization")
-viz_type = st.selectbox("Choose Chart Type", ["Scatterplot", "Lineplot", "Barplot"])
+# 📊 Custom Dynamic Interactive Visualizations using Altair
+
+st.subheader("📊 Custom Interactive Visualization")
+
+chart_type = st.selectbox("Choose Chart Type", ["Scatterplot", "Lineplot", "Barplot (Aggregated)"])
 x_col = st.selectbox("Select X-axis", filtered_df.select_dtypes(include=["number", "object", "category"]).columns)
 y_col = st.selectbox("Select Y-axis", filtered_df.select_dtypes(include=["number"]).columns)
 
-fig, ax = plt.subplots()
-if viz_type == "Scatterplot":
-    sns.scatterplot(data=filtered_df, x=x_col, y=y_col, ax=ax)
-elif viz_type == "Lineplot":
-    sns.lineplot(data=filtered_df, x=x_col, y=y_col, ax=ax)
-elif viz_type == "Barplot":
-    sns.barplot(data=filtered_df, x=x_col, y=y_col, ax=ax)
-st.pyplot(fig)
+if chart_type == "Scatterplot":
+    chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
+        x=alt.X(x_col, type='quantitative' if pd.api.types.is_numeric_dtype(filtered_df[x_col]) else 'nominal'),
+        y=alt.Y(y_col, type='quantitative'),
+        tooltip=[x_col, y_col]
+    ).interactive()
+
+elif chart_type == "Lineplot":
+    chart = alt.Chart(filtered_df).mark_line().encode(
+        x=alt.X(x_col, type='temporal' if "date" in x_col.lower() else 'ordinal'),
+        y=alt.Y(y_col, type='quantitative'),
+        tooltip=[x_col, y_col]
+    ).interactive()
+
+elif chart_type == "Barplot (Aggregated)":
+    chart = alt.Chart(filtered_df).mark_bar().encode(
+        x=alt.X(x_col, type='nominal'),
+        y=alt.Y(f"sum({y_col})", type='quantitative'),
+        tooltip=[x_col, alt.Tooltip(f"sum({y_col})", title=f"Total {y_col}")]
+    ).interactive()
+
+st.altair_chart(chart, use_container_width=True)
 
 # Export filtered data
 st.subheader("💾 Export Filtered Data")
