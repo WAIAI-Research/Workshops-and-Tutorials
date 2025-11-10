@@ -1,9 +1,9 @@
 import pandas as pd
 
 # Load the provided CSV files
-customers_df = pd.read_csv("/mnt/data/customers.csv")
-orders_df = pd.read_csv("/mnt/data/orders.csv")
-returns_df = pd.read_csv("/mnt/data/returns.csv")
+customers_df = pd.read_csv("data/customers.csv")
+orders_df = pd.read_csv("data/orders.csv")
+returns_df = pd.read_csv("data/returns.csv")
 
 # Function to summarize a DataFrame
 def summarize_dataframe(df, description_map):
