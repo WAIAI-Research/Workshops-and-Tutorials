@@ -1,0 +1,383 @@
+---
+title: "Three things you didn't know you could do in R"
+author: "Ginny Ulichney, PhD & Liz Beard, PhD - Research Analysts at Wharton AI and Analytics Initiative"
+#date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    theme: sandstone
+    highlight: default
+---
+
+<style type="text/css">
+
+body{ /* Normal */
+      font-size: 16px;
+  }
+td {  /* Table */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 38px;
+  color: #990000;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: #011F5B;
+}
+h2 { /* Header 2 */
+  font-size: 22px;
+  color: #011F5B;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: #011F5B;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, error = F) #making sure errors and warnings aren't included in the knit Rmd
+```
+
+# Three things you didn't know you could do in R: WAIAI on-demand workshop
+
+## Introduction
+
+### What is R?
+
+**R** is a programming language and environment often used for statistical analysis and data visualization.
+
+### How do I use R?
+
+**Download R software:** R is a free, open-source software that can be installed directly from [the R project](https://www.r-project.org).
+
+**Download RStudio:** RStudio IDE is available via [Posit](https://posit.co/download/rstudio-desktop/).
+
+**Create new R files:** open R Script, R Markdown, or Quarto (or other) file types by clicking "File" > "New File" > "R Script," "R Markdown," or "Quarto Document". 
+
+- **Code in R basics:** 
+
+  - **Objects** are values saved for future use and can be created using the <- assignment operator, e.g., pi <- 3.1459 or name <- "Wharton AI and Analytics Initiative". 
+
+  - **Data-frames** are tables similar to Excel spreadsheets, where each row represents an observation, each column represents a variable, and each cell represents a value. 
+  
+  - **Variables** can take different types in R. A few common data types you might encounter in R are:
+    - *character* for text
+    - *numeric* (with decimals) or *integer* (whole numbers) for numbers
+    - *factor* for categorical variables
+    - *logical* for boolean values (TRUE or FALSE)
+    -  NA or NaN for missing values
+  
+  - **Functions** are commands used to act on your data with underlying code to complete specific tasks in R similar to formulas in Excel, e.g., mean(c(1, 2, 3, 4)). You can write your own functions or use pre-packaged ones from R packages.
+
+  - **Access pre-packaged R functions:** additional R packages beyond base R for more useful functions are available via the [Comprehensive R Archive Network, or CRAN](https://cran.r-project.org/web/packages/available_packages_by_name.html). 
+  
+  - **Comments** are notes written in code following a # symbol
+  
+
+### What can I do in R?
+
+A couple of useful examples (among many R capabilities!):
+
+1. Real-time access to public, openly-accessible data with web scraping
+
+2. Create instant, interactive web reports
+
+3. Automatically generate and update PowerPoint decks
+
+ 
+## Load packages
+    
+```{r load packages}
+#load packages with comment on their uses
+library(tidyverse) #data organization
+library(rvest) #scraping
+library(polite) #scraping
+library(skimr) #EDA
+library(psych) #EDA
+library(ggpubr) #EDA
+library(plotly) #EDA
+library(officer) #Microsoft Office functions
+library(MetBrewer) #palettes
+library(rmarkdown) #Rmd formatting
+library(knitr) #Rmd formatting
+
+# save a color palette
+MetBrew_Cross <- MetBrewer::met.brewer("Cross", n = 50)
+
+## install packages by running install.packages("PACKAGE-NAME")
+## cite packages by running citation(package = "PACKAGE-NAME")
+## load packages by running library(PACKAGE-NAME)
+## specify function from a specific package by running PACKAGE-NAME::function()
+## troubleshoot functions from packages by running ?PACKAGE-NAME::function()
+```
+
+## 1: Real-time access to public, openly-accessible data with web scraping 
+
+**Why it matters:** With R, you can continuously monitor and utilize publicly-available, openly-accessible data with minimal manual effort, enabling rapid strategic responses to help keep your organization agile and informed.
+
+**How it works:** By using the R polite and rvest packages, you can easily introduce yourself to the host website, access its rules, and scrape public website data (as long as it is permitted by the host). This can be useful for easily pulling in public, business-relevant data for analyses.
+
+In our example, we will looking at GDP and population data for the top 50 largest Metropolitan Statistical Areas (MSAs) in the United States from Wikipedia (Wikipedia Contributors, 2025), which is available at the following URL: https://en.wikipedia.org/wiki/List_of_United_States_metropolitan_areas_by_GDP under a CC-BY-SA 4.0 license.
+
+**Note:** Some websites restrict scraping access (e.g., only allow it for certain uses) or prohibit it altogether. Before embarking on any web-scraping project, be sure to thoroughly review and adhere to all ethical (e.g., privacy protections) and legal obligations and comply with websites' Terms of Use. Also, be mindful of your scraping requests so as to not overload websites' servers. 
+
+```{r scrape}
+#save URL and introduce to host
+MSA_GDP_url <- "https://en.wikipedia.org/wiki/List_of_United_States_metropolitan_areas_by_GDP" #save URL for website of interest
+MSA_GDP_url_bow <- polite::bow(MSA_GDP_url) #introduce user to host website 
+MSA_GDP_url_bow #check website robots.txt file for web scraping policies; also read Terms of Use on website
+
+#scrape table into dataframe
+MSA_GDP_table <- 
+  polite::scrape(MSA_GDP_url_bow) %>%  #scrape website from polite::bow object
+  rvest::html_element("table.wikitable") %>% #choose item to be pulled from page
+  rvest::html_table() %>% #convert html table to dataframe format
+  base::as.data.frame() #update from tibble to dataframe format
+knitr::kable(head(MSA_GDP_table, n = 10)) #see first 10 rows of raw dataframe
+
+#light data cleaning
+MSA_GDP_table <- MSA_GDP_table %>%
+  dplyr::rename("Rank" = "2023\nrank", 
+                "2020_Population" = "Population (2020)[4]",
+                "MSA" = "Metropolitan area",
+                "States" = "State(s)") %>% #rename some awkward column names
+  dplyr::mutate(across(c(starts_with("20")), ~gsub(",", "", .))) %>% #remove commas from GDP and population numbers
+  dplyr::mutate(across(MSA, ~str_trim(str_split_fixed(., ",", 2)[,1]))) %>% #remove repeated string 
+  dplyr::mutate(across(c(4:14), as.numeric)) #change population and GDP to numeric
+
+#make sure data overview makes sense
+utils::str(MSA_GDP_table) #data overview and types
+base::nrow(MSA_GDP_table) #number of rows
+base::names(MSA_GDP_table) #column names
+knitr::kable(head(MSA_GDP_table, n = 10)) #see first 10 rows of cleaned dataframe
+```
+
+## 2: Create instant, interactive reports
+
+**Why it matters:** Using R Markdown or Quarto, you can rapidly generate sophisticated, interactive reports that impress stakeholders, investors, and internal teams, without any additional resources. By integrating plots and data directly into reports from R, you can also minimize the risk of error, easily update reports, and facilitate reproducibility.
+
+**How it works:** We will discuss a few concepts that are helpful to create and customize your reports, and lots more information available at [R Markdown: The Definitive Guide](https://bookdown.org/yihui/rmarkdown/) (Xie, Allaire, & Grolemund, 2023) or [Quarto documents guide](https://quarto.org/docs/output-formats/html-basics.html) (from Posit).
+
+  * **YAML metadata:** At the very top of an R Markdown or Quarto document and specifies cross-document information (e.g., title), settings (e.g., table of contents), and customization (e.g., visual theme).
+    
+  * **Markdown text:** Explanatory text written outside of code chunks in R Markdown or Quarto reports can be easily added and customized.
+  
+  * **Code:** R code chunks written in-line in reports are created with ```{r} #code chunk ``` and they can be labeled and have chunk-specific behavior specified within the curly brackets.
+
+  * **Create report:** Render your report by clicking the "knit" button, and customize knit settings using the drop-down.
+
+### Integrate descriptive statistics tables
+
+#### GDP descriptive statistics per top 50 U.S. Metropolitan Statistical Area via Wikipedia
+
+```{r table 1, echo = FALSE}
+## GDP per MSA
+GDP_table <- MSA_GDP_table %>%
+  tidyr::pivot_longer(cols = c(4:13), names_to = "year", values_to = "GDP") %>% #pivot GDP data longer so GDP values are in a new column
+  dplyr::group_by(MSA) %>% #group by Metropolitan Statistical Area
+  skimr::skim(GDP) %>% #examine GDP distribution and population per MSA over years
+  dplyr::arrange(numeric.mean)  #sort GDP in ascending order
+knitr::kable(GDP_table) #use kable for nice presentation in Rmd report
+```
+
+#### Population descriptive statistics across top 50 U.S. Metropolitan Statistical Areas
+
+```{r table 2, echo = FALSE}
+## Population across MSAs
+knitr::kable(psych::describe(MSA_GDP_table$`2020_Population`)) #descriptive stats for population
+```
+
+### Integrate plots
+
+#### GDP over time for top 50 U.S. Metropolitan Statistical Areas line plot
+
+```{r lineplot, echo = FALSE, fig.width=8, fig.height=10}
+lineplot <- MSA_GDP_table %>%
+  pivot_longer(cols = c(4:13), names_to = "year", values_to = "GDP") %>% #pivot GDP data longer so GDP values are in a new column
+  ggplot(aes(x = as.factor(year), y = GDP, color = MSA, fill = MSA, group = MSA)) + #choose x and y axes, color
+  geom_point(size = 3) + #add points to plot
+  geom_path(inherit.aes = TRUE) + #add lines to plot per MSA
+  scale_color_manual(values=c(MetBrew_Cross), name = "MSA") + #add colors per MSA
+  scale_fill_manual(values=c(MetBrew_Cross), name = "MSA") + #add colors per MSA
+  theme_classic() + #set theme
+  labs(title = "Gross Domestic Product for top 50 U.S. Metropolitan Statistical Areas", #add x and y axis, caption, and title
+       caption = "Missing 2019 and 2020. Source: Wikipedia, https://en.wikipedia.org/wiki/List_of_United_States_metropolitan_areas_by_GDP",
+    y = "Gross Domestic Product in millions USD", x = "Year") +
+  theme(legend.text = element_text(size = 6)) + #change legend font size
+  theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm"))  #put legend on the bottom and decrease size between items
+lineplot
+```
+
+##### make it interactive!
+
+```{r interactive lineplot, echo = FALSE}
+ggplotly(lineplot)
+```
+
+#### GDP and Population for top 50 U.S. Metropolitan Statistical Areas scatterplot
+
+```{r scatterplot, echo = FALSE, fig.width=8, fig.height=10}
+scatterplot <- MSA_GDP_table %>%
+  ggplot(aes(y=as.numeric(`2021`), x = as.numeric(`2020_Population`))) +  #choose x and y axes, color
+    stat_cor(p.accuracy = .001, method = "pearson", alternative = "two.sided", r.accuracy = .001) + #display correlation value
+    geom_point(aes(color = MSA), size = 3) + #add points to plot
+    scale_color_manual(values=c(MetBrew_Cross), name = "MSA") + #add colors per MSA
+    geom_smooth(color = "black") + #add line, method = loess by default
+    labs(title="Association between top 50 U.S. Metropolitan Statistical Area GDPs and populations", #add x and y axis, caption, and title
+       caption = "R = Pearson's correlation. Source: Wikipedia, https://en.wikipedia.org/wiki/List_of_United_States_metropolitan_areas_by_GDP",
+       x="Population, 2020", y = "Gross Domestic Product in millions USD, 2021") + 
+    theme_classic() + #set theme
+    theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+    theme(legend.text = element_text(size = 6)) #change legend font size
+scatterplot
+```
+
+##### make it interactive!
+
+```{r interactive scatterplot, echo = FALSE}
+ggplotly(scatterplot)
+```
+
+## 3: Automatically generate and update PowerPoint decks
+
+**Why it matters:** Similar to creating reports in R, creating slide decks with R code saves manual effort, enhances reproducibility, and reduces the risk of errors, inaccuracies, or outdated information in key presentations.
+
+**How it works:** The officer R package enables easy creation of slides integrating visualizations and tables directly from R code.
+
+**Note:** You can also create PowerPoint decks by setting up Quarto or R Markdown files with a PowerPoint output directly (stay tuned for more information in another WAIAI tutorial)!
+
+```{r powerpoint}
+#open powerpoint deck
+deck <- officer::read_pptx(path = "./template.pptx") %>% officer::remove_slide(index = 1) #create new powerpoint using template saved in this folder and remove blank first slide
+deck <- officer::layout_default(deck, "Title and Content") #update default slide type
+
+#add title slide
+deck <- officer::add_slide(deck, layout = "Title Slide") #add new slide to open deck with title layout
+deck <- officer::ph_with(deck, "U.S. Metropolitan Statistical Area GDP over time", location = ph_location_type(type = "ctrTitle")) #add and center title text
+deck <- officer::ph_with(deck, "By Ginny Ulichney", location = ph_location_type(type = "subTitle")) #add and center subtitle text
+
+#clean up table to be added to slide, create top 10 table
+GDP_top10_table <- GDP_table %>% 
+  dplyr::slice_max(numeric.mean, n = 10) %>% #choose top 10 MSAs by GDP from ascending table
+  dplyr::select(c(MSA, numeric.mean, numeric.sd)) %>%  #select only columns we want in pptx
+  rename("Mean" = "numeric.mean", 
+          "SD" = "numeric.sd") #rename columns to look nicer in table
+
+#add table slide
+deck <- add_slide(deck) #add new slide for table 
+deck <- ph_with(deck, "Top 10 MSAs by mean GDP (millions of dollars) via Wikipedia, 2012-2023", location = ph_location_type(type = "title")) #add title to table slide
+deck <- ph_with(deck, value = GDP_top10_table, location = ph_location_type(type = "body")) #add table to slide; updates made to table will automatically be reflected when re-compiling powerpoint
+
+#add plot slide 1
+deck <- officer::add_slide(deck)
+deck <- officer::ph_with(deck, "GDP increased over 2012-2023 for most U.S. Metropolitan Statistical Areas (top 50)", location = ph_location_type(type = "title")) #add title to first plot slide
+deck <- officer::ph_with(deck, value = lineplot, location = ph_location_type(type = "body")) #add line plot from above to slide; again, any updates made to plot will automatically be reflected 
+
+#add plot slide 2
+deck <- officer::add_slide(deck)
+deck <- officer::ph_with(deck, "2020 Population and 2021 GDP were positively associated across U.S. Metropolitan Statistical Areas (top 50)", location = ph_location_type(type = "title")) #add title to first plot slide
+deck <- officer::ph_with(deck, value = scatterplot, location = ph_location_type(type = "body")) #add correlation scatterplot to slide
+
+#save deck
+print(deck, target = "./example_GDP_MSA_deck.pptx") #save finished deck to directory
+```
+
+## What did we learn?
+
+In this workshop, we discussed a few fundamental concepts in R and used R code to:
+
+  * 1: Scrape real-time, openly-accessible data
+  
+  * 2: Create instant, interactive reports
+  
+  * 3: Automatically generate PowerPoint decks for easy updating and reproducibility
+
+In up-coming videos, we'll discuss some more advanced things you can do in R, such as:
+
+  * Gather insights from unstructured text data using text analysis
+  
+  * Create interactive plots to enhance clarity in complex data visualizations
+  
+  * Generate data dashboards (and slide decks!) directly in Quarto
+
+## References & Additional Resources
+
+### Additional resources
+
+* [Wharton AI and Analytics Initiative on-demand learning resources](https://ai-analytics.wharton.upenn.edu/for-students/on-demand-learning/)
+* [UPenn Library Guides R/RStudio resources](https://guides.library.upenn.edu/rpg)
+* [UPenn Library Guides R for Business guide by Kevin Thomas](https://guides.library.upenn.edu/r-business/overview)
+* [R for Data Science (2nd edition) by Hadley Wickham, Mine Çetinkaya-Rundel, and Garrett Grolemund](https://r4ds.hadley.nz)
+* [W3 Schools R Tutorial](https://www.w3schools.com/r/default.asp)
+* [An Introduction to R: Notes on R: a Programming Environment for Data Analysis and Graphics Version 4.5.1 (2025-06-13) by W.N. Venables, D.M. Smith, and the R Core Team](https://cran.r-project.org/doc/manuals/R-intro.pdf)
+* [R Markdown guide from RStudio](https://rmarkdown.rstudio.com/lesson-1.html)
+* [R Markdown: The Definitive Guide by Yihui Xie, J.J. Allaire, and Garrett Grolemund ](https://bookdown.org/yihui/rmarkdown/html-document.html#appearance_and_style)
+* [Quarto guide from Posit](https://quarto.org/docs/guide/)
+* [Web-scraping chapter, R for Data Science (2nd edition) by Hadley Wickham, Mine Çetinkaya-Rundel, and Garrett Grolemund](https://r4ds.hadley.nz/webscraping.html)
+* [R polite package reference guide by Dmytro Perepolkin](https://dmi3kno.github.io/polite/index.html)
+* [officer R package reference guide by David Gohel](https://davidgohel.github.io/officer/reference/index.html)
+* [officeverse book by David Gohel](https://ardata-fr.github.io/officeverse/index.html)
+* [R Markdown templates](https://rmarkdown.rstudio.com/gallery.html)
+
+### References
+
+R Core Team (2025). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing, Vienna, Austria. <https://www.R-project.org/>.
+
+Wikipedia contributors. (2025, June 5). List of United States metropolitan areas by GDP. In Wikipedia, The Free Encyclopedia. Retrieved 17:03, September 17, 2025, from https://en.wikipedia.org/w/index.php?title=List_of_United_States_metropolitan_areas_by_GDP&oldid=1294080196
+
+Wickham H, Averick M, Bryan J, Chang W, McGowan LD, François R, Grolemund G, Hayes A, Henry L, Hester J, Kuhn M, Pedersen
+  TL, Miller E, Bache SM, Müller K, Ooms J, Robinson D, Seidel DP, Spinu V, Takahashi K, Vaughan D, Wilke C, Woo K, Yutani H
+  (2019). “Welcome to the tidyverse.” _Journal of Open Source Software_, *4*(43), 1686. doi:10.21105/joss.01686
+  <https://doi.org/10.21105/joss.01686>.
+  
+Wickham H (2024). _rvest: Easily Harvest (Scrape) Web Pages_. doi:10.32614/CRAN.package.rvest
+  <https://doi.org/10.32614/CRAN.package.rvest>, R package version 1.0.4, <https://CRAN.R-project.org/package=rvest>.
+  
+William Revelle (2025). _psych: Procedures for Psychological, Psychometric, and Personality Research_. Northwestern
+  University, Evanston, Illinois. R package version 2.5.3, <https://CRAN.R-project.org/package=psych>.
+
+Kassambara A (2023). _ggpubr: 'ggplot2' Based Publication Ready Plots_. doi:10.32614/CRAN.package.ggpubr
+  <https://doi.org/10.32614/CRAN.package.ggpubr>, R package version 0.6.0, <https://CRAN.R-project.org/package=ggpubr>.
+  
+C. Sievert. Interactive Web-Based Data Visualization with R, plotly, and shiny. Chapman and Hall/CRC Florida, 2020.
+
+Gohel D, Moog S, Heckmann M (2025). _officer: Manipulation of Microsoft Word and PowerPoint Documents_.
+  doi:10.32614/CRAN.package.officer <https://doi.org/10.32614/CRAN.package.officer>, R package version 0.6.10,
+  <https://CRAN.R-project.org/package=officer>.
+  
+Mills BR (2022). _MetBrewer: Color Palettes Inspired by Works at the Metropolitan Museum of Art_.
+  doi:10.32614/CRAN.package.MetBrewer <https://doi.org/10.32614/CRAN.package.MetBrewer>, R package version 0.2.0,
+  <https://CRAN.R-project.org/package=MetBrewer>.
+  
+Allaire J, Xie Y, Dervieux C, McPherson J, Luraschi J, Ushey K, Atkins A, Wickham H, Cheng J, Chang W, Iannone R (2024).
+  _rmarkdown: Dynamic Documents for R_. R package version 2.29, <https://github.com/rstudio/rmarkdown>.
+
+Xie Y, Allaire J, Grolemund G (2018). _R Markdown: The Definitive Guide_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+  9781138359338, <https://bookdown.org/yihui/rmarkdown>.
+
+Xie Y, Dervieux C, Riederer E (2020). _R Markdown Cookbook_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+  9780367563837, <https://bookdown.org/yihui/rmarkdown-cookbook>.
+  
+Xie Y (2025). _knitr: A General-Purpose Package for Dynamic Report Generation in R_. R package version 1.50,
+  <https://yihui.org/knitr/>.
+
+Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition. Chapman and Hall/CRC. ISBN 978-1498716963
+
+Yihui Xie (2014) knitr: A Comprehensive Tool for Reproducible Research in R. In Victoria Stodden, Friedrich Leisch and
+  Roger D. Peng, editors, Implementing Reproducible Computational Research. Chapman and Hall/CRC. ISBN 978-1466561595
+  
+Perepolkin D (2023). _polite: Be Nice on the Web_. doi:10.32614/CRAN.package.polite
+  <https://doi.org/10.32614/CRAN.package.polite>, R package version 0.1.3,
+  <https://CRAN.R-project.org/package=polite>
+  
+Posit team (2025). RStudio: Integrated Development Environment for R. Posit Software, PBC, Boston, MA. URL
+  http://www.posit.co/.
+
+```{r session info, echo = F}
+sessioninfo::session_info()
+```
