@@ -1,0 +1,1033 @@
+---
+title: "WAIAI Dashboards in R with Quarto"
+author: "Ginny Ulichney, PhD"
+format: 
+  dashboard:
+    theme: sandstone
+    nav-buttons:
+      - icon: github
+        href: https://github.com/WAIAI-Research
+      - icon: linkedin
+        href: https://www.linkedin.com/company/whartonaiai
+      - icon: globe2
+        href: https://ai-analytics.wharton.upenn.edu/about/ 
+---
+<style type="text/css">
+
+body{ /* Normal */
+      font-size: 16px;
+  }
+td {  /* Table */
+  font-size: 12px;
+  }
+</style>
+
+
+```{r}
+#| label: "load packages"
+#| message: false
+#| output: false
+#| 
+
+#table, analysis, and visualization packages
+library(tidyverse)
+library(modelsummary)
+library(MetBrewer)
+library(factoextra)
+library(skimr)
+
+#dashboard packages
+library(plotly)
+library(reactable)
+library(bslib)
+library(bsicons)
+
+#themes and palettes
+MetBrew_Egypt <- MetBrewer::met.brewer("Egypt", n = 5)
+MetBrew_Peru <- MetBrewer::met.brewer("Peru1", n = 4)
+MetBrew_Austria <- MetBrewer::met.brewer("Austria", n = 4)
+MetBrew_Renoir <- MetBrewer::met.brewer("Renoir", n = 13)
+MetBrew_Juarez <- MetBrewer::met.brewer("Juarez", n = 6)
+MetBrew_Tsimshian <- MetBrewer::met.brewer("Tsimshian", n = 6)
+MetBrew_Benedictus <- rev(MetBrewer::met.brewer("Benedictus", n = 3))
+
+theme_set(theme_classic())
+```
+
+```{r}
+#| label: "load data"
+#| message: false
+#| output: false
+
+# import data
+CUST_df <- read.csv("./data/Store_Customers.csv") %>%
+  select(-c(X))
+
+#reordering categories as needed
+CUST_df$income_level <- factor(CUST_df$income_level, levels = c("low", "lower-mid", "upper-mid", "high"))
+CUST_df$age_bins <- factor(CUST_df$age_bins, levels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70+"))
+CUST_df$educ <- factor(CUST_df$educ, levels = c("N/A or no schooling", "Less HS", "HS", "Some College", "College", "Grad School"))
+
+CUST_df2 <- CUST_df %>%
+  dplyr::select(-c(week, store_choice)) %>%
+  distinct() #one row per customer version
+
+PURCH_df <- read.csv("./data/Store_GroceryPurchases.csv") %>%
+  select(-c(X))
+```
+
+# Dashboards in R with Quarto Tutorial
+
+## 
+
+### {width=50%}
+
+::: {.card title="Introduction"}
+
+**What can I do with this workshop?**
+
+Dashboards are a common tool used to provide overviews of complex data and can be used to display key information such as trends in data, metrics and Key Performance Indicators (KPIs), and analytic results. 
+
+Understanding how to create clear, useful dashboards is crucial as they can be used to display metrics in many domains, such as finance, marketing, healthcare, education, human resources, market research, and sports.
+
+**Use Cases**
+
+* Summarize complex data and results of analyses
+
+* Provide easy-to-use deliverables that can be easily shared
+
+* Automate tracking of metrics, trends, and KPIs over time
+
+**Workshop Goals**
+
+In this workshop, we will go over how to create easy-to-use, interactive dashboards following dashboard principles in R using Quarto. We will be using a simulated grocery purchase dataset. The goal of our dashboard is to summarize the store's grocery sales and categorize customer diets.
+
+:::
+
+### {width=50%}
+
+::: {.card title="Data Dashboard Principles"}
+
+1. **Address business need and support decision-making**
+* Stakeholder goals are prioritized in dashboard design
+* Final dashboard tells a clear story
+
+2. **Provide context to facilitate understanding**
+* Sufficient context is given that dashboard can stand alone
+* Data quality and pre-processing details are transparent
+
+3. **Tailor dashboard to audience**
+* Data is presented aligning with natural information flow and accessibility
+* Audience is in mind when designing dashboard; stakeholder feedback incorporated frequently
+
+4. **Follow data visualization principles**
+* Consistency and clarity carry across dashboard visualizations
+* Attention is drawn to key information using visual elements
+
+:::
+
+## {height=35%}
+
+::: {.card title="About this data"}
+
+For this workshop, we will be using a subset of a simulated dataset created by WAIAI Senior Data Scientist Russ Walters and WAIAI Senior Fellow Eric Eisenstein for pedagogical purposes. We will be examining simulated customer and purchase data for a fictional grocery store with two sub-components:
+
+* **Customer Dataset**
+  + *Customer demographics and number of store visits*
+  + 14692 rows, 15 cols
+* **Grocery Purchase dataset**
+  + *6-month spend by customer across different grocery purchase categories*
+  + 1381 rows, 15 cols
+
+:::
+
+# About the Data
+
+## {height=25%}
+
+### {width=25%}
+```{r}
+#| label: "value box 1"
+#| content: valuebox
+#| title: "Purchase Categories"
+#| icon: "basket2"
+list(
+  value = "13",
+  color = c("#FCECED")
+)
+```
+
+### {width=25%}
+```{r}
+#| label: "value box 2 set-up"
+#| output: false
+#| 
+
+PURCH_df %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+  mutate(value = as.numeric(value)) %>%
+  group_by(CUST_id) %>%
+  mutate(total_spend = sum(value)) %>%
+  ungroup() %>%
+  skim()
+```
+
+```{r}
+#| label: "value box 2"
+#| content: valuebox
+#| title: "Avg. 6-month Spend"
+#| icon: "currency-dollar"
+list(
+  value = "$1715",
+  color = c("#FCECED")
+)
+```
+
+### {width=25%}
+```{r}
+#| label: "value box 3"
+#| content: valuebox
+#| title: "Total customers"
+#| icon: "people"
+list(
+  value = "1,381",
+  color = c("#E6F2FD")
+)
+```
+
+### {width=25%}
+```{r}
+#| label: "value box 4"
+#| content: valuebox
+#| title: "Weeks of customer choices"
+#| icon: "calendar"
+list(
+  value = "27",
+  color = c("#E6F2FD")
+)
+```
+
+## {height=55%}
+
+### {width=50%}
+
+**Grocery Purchase data**
+
+The Grocery Purchase dataset contains 6-month spend data per customer (by *CUST_id*) for 1381 customers for the fictional grocery store brand. All purchase data is in dollars and is broken down by category of items purchased:
+
+  * **Protein**
+    + beef (*PURCH_beef*)
+    + chicken (*PURCH_chicken*)
+    + seafood (*PURCH_seafood*)
+    + other protein (*PURCH_protein_other*)
+  * **Junk food**
+    + sugary foods (*PURCH_sugar*)
+    + frozen food (*PURCH_frozen*)
+  * **Carbs**
+    + processed carbs (*PURCH_carbs_junk*)
+    + healthy carbs (*PURCH_carbs_whole*)
+  * **Cans** (*PURCH_cans*)
+  * **Dairy** (*PURCH_dairy*)
+  * **Prepared foods** (*PURCH_prep*)
+  * **Produce**
+    + fruit (*PURCH_fruit*)
+    + vegetables (*PURCH_veg*)
+
+### {width=50%}
+
+**Customer data**
+
+The Customer dataset contains information about 1381 fictional customers (via *CUST_id*) and how much of the time they chose this brand of grocery stores (*visits*) over the last 27 weeks (in half-week increments via *week*). Variables in the Customer dataset include:
+
+  * **Demographics**
+    + gender (*gender*, male and female, categorical)
+    + age group (*age_bins* by decade, categorical)
+    + education level (*educ* by highest completed education level, categorical)
+    + household income level (*income_level* by band, categorical)
+    + home location density (*density_cat* by area, categorical)
+    + number of kids (*kids* count, numeric)
+  * **Store information**
+    + distance of two closest stores to customer (*store1_dist* and *store2_dist* in miles, numeric)
+    + average online rating of two closest stores to customer (*store1_rtg* and *store2_rtg* 1-5 scale, numeric)
+    + total visits of customer to a store over past 27 weeks (*visits*)
+
+## {height=20%}
+
+```{r}
+#| label: "purch df top rows"
+#| 
+knitr::kable(head(PURCH_df))
+```
+
+```{r}
+#| label: "cust df top rows"
+#| 
+knitr::kable(head(CUST_df))
+```
+
+
+# Grocery Purchase
+
+##
+
+### {width=30%}
+
+:::{.card title = "6-month Spend descriptive statistics"}
+```{r}
+#| label: "purch table set-up"
+#| output: false
+#| 
+PURCH_df_long <- PURCH_df %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+  mutate(value = as.numeric(value)) 
+Range <- function(x) paste0('[', min(x, na.rm = TRUE), '-', max(x, na.rm = TRUE), ']')
+```
+
+```{r}
+#| label: "purch table"
+#| 
+#overall 6-month spend per store per category
+datasummary(value*name ~ (Mean+SD+Range), 
+            data = PURCH_df_long)
+```
+:::
+
+### {width=70%}
+
+:::{.card title = "6-month Spend distribution and mean by category"}
+```{r}
+#| label: "purch spend dist"
+#| title: Spend distribution and mean
+#| layout-ncol: 2
+#| 
+## percentages of each item per store
+purchplot <- PURCH_df %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  group_by(name) %>%
+  filter(value > (mean(value) - sd(value)) & value < (mean(value) + sd(value))) %>%
+  ungroup() %>%
+  ggplot(aes(x = value, fill = as.factor(name), color = as.factor(name))) +
+  geom_density(alpha=.2) +
+  labs(x = "6-month Spend (outliers removed)", y = "Density",
+       title = "Distrbution of spend per category",
+       caption = "outliers +/-1SD removed.") + 
+  scale_fill_manual(values = MetBrew_Renoir, name = "Category") +
+  scale_color_manual(values = MetBrew_Renoir, name = "Category") +
+  theme_classic() +
+  theme(legend.position = "bottom") 
+purchplot
+
+## percentages of each item per store
+meanpurchplot <- PURCH_df %>%
+  transmute(avg_PURCH_cans = mean(PURCH_cans),
+            avg_PURCH_carbs_junk = mean(PURCH_carbs_junk),
+            avg_PURCH_carbs_whole = mean(PURCH_carbs_whole),
+            avg_PURCH_dairy = mean(PURCH_dairy),
+            avg_PURCH_frozen = mean(PURCH_frozen),
+            avg_PURCH_fruit = mean(PURCH_fruit),
+            avg_PURCH_beef = mean(PURCH_beef),
+            avg_PURCH_chicken = mean(PURCH_chicken),
+            avg_PURCH_protein_other = mean(PURCH_protein_other),
+            avg_PURCH_seafood = mean(PURCH_seafood),
+            avg_PURCH_sugar = mean(PURCH_sugar),
+            avg_PURCH_veg = mean(PURCH_veg),
+            avg_PURCH_prep = mean(PURCH_prep)) %>%
+  distinct() %>%
+  ungroup() %>%
+  pivot_longer(cols = starts_with("avg_")) %>%
+  map_df(., ~ gsub("avg_PURCH_", "", .x, fixed = T)) %>%
+  ggplot(aes(x = as.factor(name), y = as.numeric(value), fill = as.factor(name), color = as.factor(name))) +
+  geom_bar(aes(fill = name), stat="identity", position = "dodge") +
+  labs(x = "Category", y = "Mean 6-month Spend (dollars)",
+       title = "Average 6-month spend per category") + 
+  scale_fill_manual(values = MetBrew_Renoir, name = "Category") +
+  scale_color_manual(values = MetBrew_Renoir, name = "Category") +
+  theme_minimal() +
+  theme(legend.position = "none")
+meanpurchplot
+```
+:::
+
+## {height=50%}
+
+### {.tabset}
+
+```{r}
+#| label: "purch spend by income"
+#| title: Spend by income
+#| 
+CUST_demos <- CUST_df %>%
+  dplyr::select(c(CUST_id, gender, age_bins, educ, income_level, density_cat, kids)) %>%
+  distinct()
+
+incomespendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+  group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         income_level = factor(income_level, levels = c("low", "lower-mid", "upper-mid", "high"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, income_level, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(income_level) %>%
+  ggplot(aes(x=as.factor(income_level), y=as.numeric(total_spend), color = as.factor(income_level), fill=as.factor(income_level))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_fill_manual(values=c(MetBrew_Egypt), name = "Household income level") +
+  scale_color_manual(values=c(MetBrew_Egypt), name = "Household income level") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="6-month spend by income",
+       x="Category", y = "6-month spend (dollars)",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="right")
+ggplotly(incomespendplot)
+```
+  
+```{r}
+#| label: "purch spend by gender"
+#| title: Spend by gender
+#| 
+genderspendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+    group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T)) %>%
+  ungroup() %>%
+  select(c(CUST_id, gender, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(gender) %>%
+  ggplot(aes(x=as.factor(gender), y=as.numeric(total_spend), color = as.factor(gender), fill=as.factor(gender))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=c("gold", "green4"), name = "Gender") +
+  scale_color_manual(values=c("gold", "green4"), name = "Gender") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="6-month spend by gender",
+       x="Category", y = "6-month spend (dollars)",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="right")
+ggplotly(genderspendplot)
+```
+
+```{r}
+#| label: "purch spend by age"
+#| title: Spend by age group
+#| 
+
+agespendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+      group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         age_bins = factor(age_bins, levels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70+"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, age_bins, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(age_bins) %>%
+  ggplot(aes(x=as.factor(age_bins), y=as.numeric(total_spend), color = as.factor(age_bins), fill=as.factor(age_bins))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=MetBrew_Juarez, name = "Age group") +
+  scale_color_manual(values=MetBrew_Juarez, name = "Age group") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="6-month spend by age group",
+       x="Category", y = "6-month spend (dollars)",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="right") 
+ggplotly(agespendplot)
+```
+
+```{r}
+#| label: "purch spend by educ"
+#| title: Spend by education
+#|
+
+educationspendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+      group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         educ = factor(educ, levels = c("N/A or no schooling", "Less HS", "HS", "Some College", "College", "Grad School"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, educ, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(educ) %>%
+  ggplot(aes(x=as.factor(educ), y=as.numeric(total_spend), color = as.factor(educ), fill=as.factor(educ))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=MetBrew_Tsimshian, name = "Education") +
+  scale_color_manual(values=MetBrew_Tsimshian, name = "Education") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="6-month spend by education",
+       x="Category", y = "6-month spend (dollars)",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="right")
+ggplotly(educationspendplot)
+```
+
+# Customers
+
+##
+
+### {width=30%}
+
+:::{.card title = "Customer descriptive statistics"}
+```{r}
+#| label: "cust descriptive table set-up"
+#| output: false
+#| 
+visits_df <- CUST_df2 %>%
+  dplyr::select(c(visits, age_bins, gender, educ, income_level, density_cat, kids, 
+                  store1_dist, store1_rtg))
+```
+
+```{r}
+#| label: "cust descriptive table"
+#| 
+datasummary_balance(~1, data = visits_df)
+```
+:::
+
+
+### {.tabset}
+
+```{r}
+#| label: "cust traffic"
+#| title: Traffic
+#| 
+### number of customers per store per week
+custtrafficplot <- CUST_df %>%
+  select(c(week, brand)) %>%
+  group_by(week) %>%
+  count(brand, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = week, y = n, color = brand, fill = brand, na.rm = T)) +
+  geom_point(size = 1) +
+  geom_line() +
+  scale_fill_manual(values = MetBrew_Austria, name = "Brand") +
+  scale_color_manual(values = MetBrew_Austria, name = "Brand") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(size = 6)) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))  + 
+    scale_y_continuous(limits = c(0, NA)) +
+  labs(y = "Shopper Count", x = "Week", 
+       title = "Number of shoppers at over time",
+       caption = "double click group in legend to isolate.") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(custtrafficplot)
+```
+
+```{r}
+#| label: "cust visits"
+#| title: Visits
+#| 
+visitsplot <- CUST_df2 %>%
+  select(brand, visits, CUST_id) %>%
+  distinct() %>%
+  ggplot(aes(x=as.factor(brand), y=as.numeric(visits), color = as.factor(brand), fill=as.factor(brand))) +
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=MetBrew_Austria, name = "Brand") +
+  scale_color_manual(values=MetBrew_Austria, name = "Brand") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+    scale_y_continuous(limits = c(0, NA)) +
+  labs(title="Store visits",
+       x="Store", y = "Count",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="none") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(visitsplot)
+```
+
+```{r}
+#| label: "cust gender"
+#| title: Gender
+#| 
+genderplot <- CUST_df %>%
+  select(c(week, gender)) %>%
+  group_by(week) %>%
+  count(gender, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = week, y = n, color = gender, fill = gender, na.rm = T)) +
+  geom_point(size = 1) +
+  geom_line() +
+  scale_fill_manual(values = c("gold", "green4")) +
+  scale_color_manual(values = c("gold", "green4")) +
+    scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(size = 6)) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))  + 
+  labs(y = "Shopper Count", x = "Week", 
+  title = "Gender",
+       caption = "double click group in legend to isolate.") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(genderplot)
+```
+
+```{r}
+#| label: "cust age"
+#| title: Age group
+#| 
+### by age group
+agegroupplot <- CUST_df %>%
+  select(c(week, age_bins)) %>%
+  group_by(week) %>%
+  count(age_bins, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = as.factor(week), y = n, color = as.factor(age_bins), fill = as.factor(age_bins), na.rm = T)) +
+  geom_bar(position = "fill", stat="identity") +
+  labs(x = "Week", y = "Shopper Percentage",
+       title = "Age group",
+       caption = "double click group in legend to isolate.") + 
+  scale_fill_manual(values =  MetBrew_Juarez, name = "Age group") +
+ scale_color_manual(values =  MetBrew_Juarez, name = "Age group") +
+    scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(agegroupplot)
+```
+
+```{r}
+#| label: "cust educ"
+#| title: Education
+#| 
+### by education
+educplot <- CUST_df %>%
+  select(c(week, educ)) %>%
+  group_by(week) %>%
+  count(educ, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = as.factor(week), y = n, color = as.factor(educ), fill = as.factor(educ), na.rm = T)) +
+  geom_bar(position = "fill", stat="identity") +
+  labs(x = "Week", y = "Shopper Percentage",
+       title = "Education level",
+       caption = "double click group in legend to isolate.") + 
+  scale_fill_manual(values =  MetBrew_Tsimshian, name = "Education level") +
+ scale_color_manual(values =  MetBrew_Tsimshian, name = "Education level") +
+    scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(educplot)
+```
+
+```{r}
+#| label: "cust inc"
+#| title: Income
+#| 
+### by income
+incplot <- CUST_df %>%
+  select(c(week, income_level)) %>%
+  group_by(week) %>%
+  count(income_level, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = as.factor(week), y = n, color = as.factor(income_level), fill = as.factor(income_level), na.rm = T)) +
+  geom_bar(position = "fill", stat="identity") +
+  labs(x = "Week", y = "Shopper Percentage",
+       title = "Income level",
+       caption = "double click group in legend to isolate.") + 
+  scale_fill_manual(values =  MetBrew_Egypt, name = "Income level") +
+ scale_color_manual(values =  MetBrew_Egypt, name = "Income level") +
+    scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(incplot)
+```
+
+```{r}
+#| label: "cust dens"
+#| title: Density
+#| 
+### by density
+densplot <- CUST_df %>%
+  select(c(week, density_cat)) %>%
+  group_by(week) %>%
+  count(density_cat, sort = TRUE) %>%
+  ungroup() %>%
+  distinct() %>%
+  ggplot(aes(x = as.factor(week), y = n, color = as.factor(density_cat), fill = as.factor(density_cat), na.rm = T)) +
+  geom_bar(position = "fill", stat="identity") +
+  labs(x = "Week", y = "Shopper Percentage",
+       title = "Household Density",
+       caption = "double click group in legend to isolate.") + 
+  scale_fill_manual(values =  MetBrew_Peru, name = "Density") +
+ scale_color_manual(values =  MetBrew_Peru, name = "Density") +
+    scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(densplot)
+```
+
+```{r}
+#| label: "cust kids"
+#| title: Kids
+#|
+kidsplot <- CUST_df %>%
+  select(c(CUST_id, kids, brand)) %>%
+  distinct() %>%
+  ggplot(aes(x=as.factor(brand), y=as.numeric(kids), color = as.factor(brand), fill=as.factor(brand))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=c("turquoise"), name = "Kids") +
+  scale_color_manual(values=c("turquoise"), name = "Kids") +
+    scale_y_continuous(limits = c(0, NA)) +
+  geom_boxplot(width=0.05, fill="white", outlier.shape = NA, alpha = 0.7)+
+  labs(title="Number of kids of shoppers",
+       x="Kids", y = "Count",
+       caption = "double click group in legend to isolate.") + 
+  theme_classic()  + 
+  theme(legend.position="bottom") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5)) 
+ggplotly(kidsplot)
+```
+
+# Analysis
+
+## {height=60%}
+
+### {width=33%}
+```{r}
+#| label: "diet clustering set-up"
+#| output: false
+#| 
+## K-means clustering total diet
+PURCH_clustering <- PURCH_df  %>%
+  group_by(CUST_id) %>%
+  transmute(CUST_id = CUST_id,
+            total_PURCH_cans = sum(PURCH_cans),
+            total_PURCH_carbs_junk = sum(PURCH_carbs_junk),
+            total_PURCH_carbs_whole = sum(PURCH_carbs_whole),
+            total_PURCH_dairy = sum(PURCH_dairy),
+            total_PURCH_frozen = sum(PURCH_frozen),
+            total_PURCH_fruit = sum(PURCH_fruit),
+            total_PURCH_beef = sum(PURCH_beef),
+            total_PURCH_chicken = sum(PURCH_chicken),
+            total_PURCH_protein_other = sum(PURCH_protein_other),
+            total_PURCH_seafood = sum(PURCH_seafood),
+            total_PURCH_sugar = sum(PURCH_sugar),
+            total_PURCH_veg = sum(PURCH_veg),
+            total_PURCH_prep = sum(PURCH_prep)) %>%
+  distinct() %>%
+  mutate(total_spend = sum(total_PURCH_cans, total_PURCH_carbs_junk, total_PURCH_carbs_whole, total_PURCH_dairy, total_PURCH_frozen, total_PURCH_fruit, total_PURCH_beef, total_PURCH_chicken, total_PURCH_protein_other, total_PURCH_seafood, total_PURCH_sugar, total_PURCH_veg, total_PURCH_prep)) %>%
+    transmute(CUST_id = CUST_id,
+            prop_PURCH_cans = total_PURCH_cans/total_spend,
+            prop_PURCH_carbs_junk = total_PURCH_carbs_junk/total_spend,
+            prop_PURCH_carbs_whole = total_PURCH_carbs_whole/total_spend,
+            prop_PURCH_dairy = total_PURCH_dairy/total_spend,
+            prop_PURCH_frozen = total_PURCH_frozen/total_spend,
+            prop_PURCH_fruit = total_PURCH_fruit/total_spend,
+            prop_PURCH_beef = total_PURCH_beef/total_spend,
+            prop_PURCH_chicken = total_PURCH_chicken/total_spend,
+            prop_PURCH_protein_other = total_PURCH_protein_other/total_spend,
+            prop_PURCH_seafood = total_PURCH_seafood/total_spend,
+            prop_PURCH_sugar = total_PURCH_sugar/total_spend,
+            prop_PURCH_veg = total_PURCH_veg/total_spend,
+            prop_PURCH_prep = total_PURCH_prep/total_spend) %>%
+  ungroup() %>%
+  column_to_rownames("CUST_id") %>%
+  scale() %>%
+  as.data.frame()
+
+#distance
+distance <- get_dist(PURCH_clustering)
+fviz_dist(distance, gradient = list(low = "navy", mid = "white", high = "darkred"))
+
+#identify number of clusters
+fviz_nbclust(PURCH_clustering, kmeans, method = "silhouette", k.max = 20) #7 suggested
+fviz_nbclust(PURCH_clustering, kmeans, method = "wss", k.max = 20) #elbow around 7
+
+#run clustering
+set.seed(2025)
+res <- kmeans(PURCH_clustering, 7, nstart = 25)
+#print(res)
+
+PURCH_clustering$diet_cluster <- res$cluster #add cluster to df
+
+#summarize groups
+#PURCH_clustering %>%
+#  group_by(diet_cluster) %>%
+#  skim()
+
+df_diet_clusters <- PURCH_clustering %>%
+  dplyr::select(c(diet_cluster)) %>%
+  mutate(diet_cluster = as.factor(diet_cluster)) %>%
+  rownames_to_column() %>%
+  rename("CUST_id" = "rowname") %>%
+  as.data.frame()
+
+CUST_df2 <- CUST_df2 %>%
+  full_join(., df_diet_clusters, by = c("CUST_id")) 
+
+CUST_df2$CUST_id <- as.factor(CUST_df2$CUST_id)
+CUST_df2$gender <- as.factor(CUST_df2$gender)
+CUST_df2$age_bins <- as.factor(CUST_df2$age_bins)
+CUST_df2$educ <- as.factor(CUST_df2$educ)
+CUST_df2$income_level <- as.factor(CUST_df2$income_level)
+CUST_df2$density_cat <- as.factor(CUST_df2$density_cat)
+```
+
+::: {.card title="Diet clusters"}
+```{r}
+#| label: "diet clustering"
+#| 
+fviz_cluster(res, data = PURCH_clustering) + 
+  labs(title = "Shopper clusters by diet",
+        subtitle = "k-means clustering based on proportion of total spend per grocery category") +
+  theme_minimal()
+```
+:::
+
+### {width = 33%}
+
+::: {.card title="About 7 diet clusters"}
+
+1. **Plant-based/older** (17.74%)
+  * *Top items:* vegetables, fruit, cans
+  * *Top Demographics:* 51% ages 60-69, 91% female, 50% college or grad school, 44.1% suburban
+
+2. **Health-conscious/middle-aged** (14.77%)
+  * *Top items:* dairy, vegetables, cans, fruit
+  * *Top demographics:* 39.7% ages 50-59, 76.5% female, 64.2% college or grad school, 51.5% suburban
+
+3. **Health-conscious/younger adult**(15.79%)
+  * *Top items:* whole carbs, dairy, beef, chicken
+  * *Top demographics:* 25.2% ages 30-39, 59.2% male, 64.7% college or grad school, 52.8% urban
+  
+4. **Health-conscious/protein-heavy**(6.4%)
+  * *Top items:* seafood, beef, fruit, whole carbs
+  * *Top demographics:* 36% ages 30-39, 80.9% female, 75.3% college or grad school, 42.7% suburban
+  
+5. **On-the-go, prepared meals**(14.41%)
+  * *Top items:* other protein, prepared foods, frozen foods
+  * *Top demographics:* 26.6% ages 50-59, 58.8% female, 35.7% suburban, 37.2% HS
+  
+6. **Processed foods**(12.38%)
+  * *Top items:* sugar, junk carbs, prepared foods
+  * *Top demographics:* 55% female, 25.1% ages 30-39, 35.7% suburban, 30.4% HS
+  
+7. **Health-conscious/family** (18.46%)
+  * *Top items:* whole carbs, dairy, fruit
+  * *Top demographics:* 46.3% ages 40-49, 87.5% female, 32.5% college, 54.1% suburban, mean n kids = 2
+  
+:::
+
+
+### {width = 33%}
+
+::: {.card title="Heatmap of grocery purchases by diet cluster"}
+```{r}
+#| label: "diet cluster heatmap set-up"
+#| output: false
+#|
+#merge proportion spend data with clusters
+cluster_summary <- PURCH_df %>%
+    group_by(CUST_id) %>%
+  transmute(CUST_id = CUST_id,
+            total_PURCH_cans = sum(PURCH_cans),
+            total_PURCH_carbs_junk = sum(PURCH_carbs_junk),
+            total_PURCH_carbs_whole = sum(PURCH_carbs_whole),
+            total_PURCH_dairy = sum(PURCH_dairy),
+            total_PURCH_frozen = sum(PURCH_frozen),
+            total_PURCH_fruit = sum(PURCH_fruit),
+            total_PURCH_beef = sum(PURCH_beef),
+            total_PURCH_chicken = sum(PURCH_chicken),
+            total_PURCH_protein_other = sum(PURCH_protein_other),
+            total_PURCH_seafood = sum(PURCH_seafood),
+            total_PURCH_sugar = sum(PURCH_sugar),
+            total_PURCH_veg = sum(PURCH_veg),
+            total_PURCH_prep = sum(PURCH_prep)) %>%
+  distinct() %>%
+  mutate(total_spend = sum(total_PURCH_cans, total_PURCH_carbs_junk, total_PURCH_carbs_whole, total_PURCH_dairy, total_PURCH_frozen, total_PURCH_fruit, total_PURCH_beef, total_PURCH_chicken, total_PURCH_protein_other, total_PURCH_seafood, total_PURCH_sugar, total_PURCH_veg, total_PURCH_prep)) %>%
+    transmute(CUST_id = CUST_id,
+            cans = total_PURCH_cans/total_spend,
+            carbs_junk = total_PURCH_carbs_junk/total_spend,
+            carbs_whole = total_PURCH_carbs_whole/total_spend,
+            dairy = total_PURCH_dairy/total_spend,
+            frozen = total_PURCH_frozen/total_spend,
+            fruit = total_PURCH_fruit/total_spend,
+            beef = total_PURCH_beef/total_spend,
+            chicken = total_PURCH_chicken/total_spend,
+            protein_other = total_PURCH_protein_other/total_spend,
+            seafood = total_PURCH_seafood/total_spend,
+            sugar = total_PURCH_sugar/total_spend,
+            veg = total_PURCH_veg/total_spend,
+            prep = total_PURCH_prep/total_spend) %>%
+  ungroup() %>%
+  full_join(., df_diet_clusters, by = c("CUST_id")) %>%
+  group_by(diet_cluster) %>%
+  summarise(across(where(is.numeric), mean))
+
+#create heatmap matrix
+heatmap_data <- as.matrix(cluster_summary[,-1])
+rownames(heatmap_data) <- paste("Cluster", cluster_summary$diet_cluster)
+```
+
+```{r}
+#| label: "diet cluster heatmap"
+#|
+heatmap(heatmap_data, Rowv = NA, Colv = NA, scale = "column") 
+```
+:::
+
+## {height=40%}
+
+### {width=50%}
+
+::: {.card title="Grocery customer takeaways"}
+
+* **Shopper Info**
+  + Most shoppers are **women** (70.5%), **middle-aged adults** (over half ages 30-59), **higher-income** (54.6% at least upper-mid), **suburban** (42%), and **highly educated** (over half are college-educated or more).
+  + Total 6-month spend also tends to be slightly higher among these more frequent shoppers.
+
+* **Primary Diet Clusters**
+  + **Health-conscious/family** (18.46%), Cluster 7
+  + **Plant-based/older** (17.74%), Cluster 1
+  + **Health-conscious/younger adult** (15.79%), Cluster 2
+
+* **Highest average 6-month spend items**
+  + **Fruit** (M=$240.08, SD=256.72)
+  + **Dairy** (M=$239.96, SD=263.32)
+  + **Cans** (M=$220.87, SD=207.76)
+
+::: 
+
+
+### {width=50%}
+
+::: {.card title="Customer descriptive statistics per diet cluster"}
+```{r}
+#| label: "cluster descriptives set-up"
+#| output: false
+#|
+cluster_demos <- CUST_df2 %>%
+  dplyr::select(c(age_bins, gender, educ, income_level, density_cat, kids, diet_cluster)) %>%
+  as.data.frame()
+```
+
+```{r}
+#| label: "cluster descriptives"
+#|
+datasummary_balance(~diet_cluster, data = cluster_demos) 
+```
+:::
+
+# Review
+
+## {height = 50%}
+
+### {width=50%}
+
+::: {.card title="Tutorial Review"}
+
+In this workshop, we:
+
+* Learned how to create a dashboard in R using Quarto
+
+* Discussed dashboard best practices to maximize utility
+
+* Worked through an example dashboard in R aiming to better understand customer diets for a fictional grocery store
+
+Happy dashboard creating!
+
+:::
+
+### {width=50%}
+
+::: {.card title="Additional resources"}
+
+* [WAIAI Mastering Data Visualization Workshop by Jamielyn Samper](https://www.youtube.com/watch?v=b5G69hQPs_U&t=2s)
+
+* [WAIAI Storytelling in Research by Jamielyn Samper](https://www.youtube.com/watch?v=OyzstDzT_So)
+
+* [UCSB Faculty Seminar Series on Quarto Dashboards](https://learning.nceas.ucsb.edu/2024-03-ucsb-faculty/session_10.html)
+
+* [Posit Quarto Dashboard overview](https://quarto.org/docs/dashboards/)
+
+* [Posit Quarto Dashboard layout documentation](https://quarto.org/docs/dashboards/layout.html)
+
+* [Posit Quarto Dashboard theming documentation](https://quarto.org/docs/dashboards/theming.html)
+
+* [Posit Quarto Dashboard examples](https://quarto.org/docs/dashboards/)
+
+* [Posit Quarto Dashboard interactivity](https://quarto.org/docs/dashboards/interactivity/)
+
+* [Posit Quarto Dashboard deployment options](https://quarto.org/docs/dashboards/deployment.html)
+
+:::
+
+## Session Info and References
+
+### {width=50%}
+```{r}
+#| label: "session info"
+#|
+utils::sessionInfo()
+```
+
+### {width=50%}
+
+**R Package References**
+```{r}
+print(citation(package = "tidyverse"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "modelsummary"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "factoextra"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "MetBrewer"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "plotly"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "reactable"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "bslib"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "bsicons"), bibtex = F)
+```
+
+```{r}
+print(citation(package = "skimr"), bibtex = F)
+```

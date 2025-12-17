@@ -1,0 +1,362 @@
+---
+title: "Example Powerpoint in R with Quarto: Grocery Dataset"
+author: "Ginny Ulichney, PhD"
+format: pptx
+---
+
+# Grocery Dataset
+
+## About the Grocery Dataset
+
+For this workshop, we will be using a subset of a simulated dataset created by WAIAI Senior Data Scientist Russ Walters and WAIAI Senior Fellow Eric Eisenstein for pedagogical purposes. We will be examining simulated customer and purchase data for a fictional grocery store with Customer and Grocery Purchase sub-components.
+
+::: {.notes}
+Here's where I will introduce the datasets.
+:::
+
+## Datasets
+
+::: {.columns}
+
+::: {.column}
+
+The **Grocery Purchase** dataset contains 6-month spend data for 1,381 customers (by *CUST_id*) for a fictional grocery store for 13 categories such as protein, junk food, carbs, and produce.
+
+:::
+
+::: {.column}
+
+The **Customer** dataset contains information such as gender, education level, and household income level for the fictional shoppers and how often they chose this grocery store over the last 6 months (via *week*).
+
+:::
+
+:::
+
+
+# Analysis
+
+```{r}
+#| label: "analysis set-up"
+#| message: false
+#| output: false
+
+#libraries
+library(tidyverse)
+library(patchwork)
+library(MetBrewer)
+library(factoextra)
+
+# import data
+CUST_df <- read.csv("./data/Store_Customers.csv") %>%
+  select(-c(X))
+
+#reordering categories as needed
+CUST_df$income_level <- factor(CUST_df$income_level, levels = c("low", "lower-mid", "upper-mid", "high"))
+CUST_df$age_bins <- factor(CUST_df$age_bins, levels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70+"))
+CUST_df$educ <- factor(CUST_df$educ, levels = c("N/A or no schooling", "Less HS", "HS", "Some College", "College", "Grad School"))
+
+CUST_df2 <- CUST_df %>%
+  dplyr::select(-c(week, store_choice)) %>%
+  distinct() #one row per customer version
+
+PURCH_df <- read.csv("./data/Store_GroceryPurchases.csv") %>%
+  select(-c(X))
+
+#themes and palettes
+MetBrew_Egypt <- MetBrewer::met.brewer("Egypt", n = 5)
+MetBrew_Peru <- MetBrewer::met.brewer("Peru1", n = 4)
+MetBrew_Austria <- MetBrewer::met.brewer("Austria", n = 4)
+MetBrew_Renoir <- MetBrewer::met.brewer("Renoir", n = 13)
+MetBrew_Juarez <- MetBrewer::met.brewer("Juarez", n = 6)
+MetBrew_Tsimshian <- MetBrewer::met.brewer("Tsimshian", n = 6)
+MetBrew_Benedictus <- rev(MetBrewer::met.brewer("Benedictus", n = 3))
+
+theme_set(theme_classic())
+```
+
+## 6-month spend distributions by category
+
+```{r}
+#| label: "purch spend dist"
+#| title: Spend distribution
+#| echo: false
+
+## percentages of each item per store
+PURCH_df %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  group_by(name) %>%
+  filter(value > (mean(value) - sd(value)) & value < (mean(value) + sd(value))) %>%
+  ungroup() %>%
+  ggplot(aes(x = value, fill = as.factor(name), color = as.factor(name))) +
+  geom_density(alpha=.2) +
+  labs(x = "6-month Spend (outliers removed)", y = "Density",
+       title = "Distrbution of spend per category",
+       caption = "outliers +/-1SD removed.") + 
+  scale_fill_manual(values = MetBrew_Renoir, name = "Category") +
+  scale_color_manual(values = MetBrew_Renoir, name = "Category") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+```
+
+## 6-month spend by shopper demographics
+
+```{r}
+#| label: "purch spend by demos"
+#| title: Spend by demographics
+#| echo: false
+
+
+CUST_demos <- CUST_df %>%
+  dplyr::select(c(CUST_id, gender, age_bins, educ, income_level, density_cat, kids)) %>%
+  distinct()
+
+incomespendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+  group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         income_level = factor(income_level, levels = c("low", "lower-mid", "upper-mid", "high"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, income_level, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(income_level) %>%
+  ggplot(aes(x=as.factor(income_level), y=as.numeric(total_spend), color = as.factor(income_level), fill=as.factor(income_level))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_y_continuous(limits = c(0, NA)) +
+  scale_fill_manual(values=c(MetBrew_Egypt), name = "Household income level") +
+  scale_color_manual(values=c(MetBrew_Egypt), name = "Household income level") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="Income",
+       x="Category", y = "6-month spend (dollars)") + 
+  theme_classic()  + 
+  theme(legend.position="none")
+
+genderspendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+    group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T)) %>%
+  ungroup() %>%
+  select(c(CUST_id, gender, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(gender) %>%
+  ggplot(aes(x=as.factor(gender), y=as.numeric(total_spend), color = as.factor(gender), fill=as.factor(gender))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=c("gold", "green4"), name = "Gender") +
+  scale_color_manual(values=c("gold", "green4"), name = "Gender") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="Gender",
+       x="Category", y = "6-month spend (dollars)") + 
+  theme_classic()  + 
+  theme(legend.position="none")
+
+agespendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+      group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         age_bins = factor(age_bins, levels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70+"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, age_bins, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(age_bins) %>%
+  ggplot(aes(x=as.factor(age_bins), y=as.numeric(total_spend), color = as.factor(age_bins), fill=as.factor(age_bins))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=MetBrew_Juarez, name = "Age group") +
+  scale_color_manual(values=MetBrew_Juarez, name = "Age group") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="Age group",
+       x="Category", y = "6-month spend (dollars)") + 
+  theme_classic()  + 
+  theme(legend.position="none") 
+
+educationspendplot <- PURCH_df %>%
+  left_join(., CUST_demos, by = c("CUST_id")) %>%
+  pivot_longer(cols = starts_with("PURCH_")) %>%
+  map_df(., ~ gsub("PURCH_", "", .x, fixed = T)) %>%
+      group_by(CUST_id) %>%
+  mutate(total_spend = sum(as.numeric(value), na.rm = T),
+         average_spend = mean(as.numeric(value), na.rm = T),
+         educ = factor(educ, levels = c("N/A or no schooling", "Less HS", "HS", "Some College", "College", "Grad School"))) %>%
+  ungroup() %>%
+  select(c(CUST_id, educ, total_spend, average_spend)) %>%
+  distinct() %>%
+  drop_na(educ) %>%
+  ggplot(aes(x=as.factor(educ), y=as.numeric(total_spend), color = as.factor(educ), fill=as.factor(educ))) + 
+  geom_jitter(size = 0.1, color="gray", alpha=0.5) +
+  geom_violin(alpha = 0.7) + 
+  scale_fill_manual(values=MetBrew_Tsimshian, name = "Education") +
+  scale_color_manual(values=MetBrew_Tsimshian, name = "Education") +
+  geom_boxplot(width=0.05, outlier.shape = NA, alpha = 0.7)+
+  labs(title="Education",
+       x="Category", y = "6-month spend (dollars)") + 
+  theme_classic()  + 
+  theme(legend.position="none")
+
+multiplot <- ((incomespendplot | genderspendplot) / (agespendplot | educationspendplot))
+multiplot
+```
+
+
+## Diet clusters
+
+:::{.columns}
+
+:::{.column}
+
+```{r}
+#| label: "clustering analysis"
+#| title: Diet clustering
+#| output: false
+
+## K-means clustering total diet
+PURCH_clustering <- PURCH_df  %>%
+  group_by(CUST_id) %>%
+  transmute(CUST_id = CUST_id,
+            total_PURCH_cans = sum(PURCH_cans),
+            total_PURCH_carbs_junk = sum(PURCH_carbs_junk),
+            total_PURCH_carbs_whole = sum(PURCH_carbs_whole),
+            total_PURCH_dairy = sum(PURCH_dairy),
+            total_PURCH_frozen = sum(PURCH_frozen),
+            total_PURCH_fruit = sum(PURCH_fruit),
+            total_PURCH_beef = sum(PURCH_beef),
+            total_PURCH_chicken = sum(PURCH_chicken),
+            total_PURCH_protein_other = sum(PURCH_protein_other),
+            total_PURCH_seafood = sum(PURCH_seafood),
+            total_PURCH_sugar = sum(PURCH_sugar),
+            total_PURCH_veg = sum(PURCH_veg),
+            total_PURCH_prep = sum(PURCH_prep)) %>%
+  distinct() %>%
+  mutate(total_spend = sum(total_PURCH_cans, total_PURCH_carbs_junk, total_PURCH_carbs_whole, total_PURCH_dairy, total_PURCH_frozen, total_PURCH_fruit, total_PURCH_beef, total_PURCH_chicken, total_PURCH_protein_other, total_PURCH_seafood, total_PURCH_sugar, total_PURCH_veg, total_PURCH_prep)) %>%
+    transmute(CUST_id = CUST_id,
+            prop_PURCH_cans = total_PURCH_cans/total_spend,
+            prop_PURCH_carbs_junk = total_PURCH_carbs_junk/total_spend,
+            prop_PURCH_carbs_whole = total_PURCH_carbs_whole/total_spend,
+            prop_PURCH_dairy = total_PURCH_dairy/total_spend,
+            prop_PURCH_frozen = total_PURCH_frozen/total_spend,
+            prop_PURCH_fruit = total_PURCH_fruit/total_spend,
+            prop_PURCH_beef = total_PURCH_beef/total_spend,
+            prop_PURCH_chicken = total_PURCH_chicken/total_spend,
+            prop_PURCH_protein_other = total_PURCH_protein_other/total_spend,
+            prop_PURCH_seafood = total_PURCH_seafood/total_spend,
+            prop_PURCH_sugar = total_PURCH_sugar/total_spend,
+            prop_PURCH_veg = total_PURCH_veg/total_spend,
+            prop_PURCH_prep = total_PURCH_prep/total_spend) %>%
+  ungroup() %>%
+  column_to_rownames("CUST_id") %>%
+  scale() %>%
+  as.data.frame()
+
+#run clustering
+set.seed(2025)
+res <- kmeans(PURCH_clustering, 7, nstart = 25)
+#print(res)
+
+PURCH_clustering$diet_cluster <- res$cluster #add cluster to df
+
+#summarize groups
+#PURCH_clustering %>%
+#  group_by(diet_cluster) %>%
+#  skim()
+
+df_diet_clusters <- PURCH_clustering %>%
+  dplyr::select(c(diet_cluster)) %>%
+  mutate(diet_cluster = as.factor(diet_cluster)) %>%
+  rownames_to_column() %>%
+  rename("CUST_id" = "rowname") %>%
+  as.data.frame()
+
+CUST_df2 <- CUST_df2 %>%
+  full_join(., df_diet_clusters, by = c("CUST_id")) 
+
+CUST_df2$CUST_id <- as.factor(CUST_df2$CUST_id)
+CUST_df2$gender <- as.factor(CUST_df2$gender)
+CUST_df2$age_bins <- as.factor(CUST_df2$age_bins)
+CUST_df2$educ <- as.factor(CUST_df2$educ)
+CUST_df2$income_level <- as.factor(CUST_df2$income_level)
+CUST_df2$density_cat <- as.factor(CUST_df2$density_cat)
+```
+
+```{r}
+#| label: "diet clustering"
+#| title: Diet clusters visualization
+#| echo: false
+
+fviz_cluster(res, data = PURCH_clustering) + 
+  labs(title = "Shopper clusters by diet",
+        subtitle = "k-means clustering based on proportion of total spend per grocery category") +
+  theme_minimal()
+```
+
+:::
+
+:::{.column}
+```{r}
+#| label: "diet cluster heatmap set-up"
+#| title: Diet heatmap
+#| output: false
+
+#merge proportion spend data with clusters
+cluster_summary <- PURCH_df %>%
+    group_by(CUST_id) %>%
+  transmute(CUST_id = CUST_id,
+            total_PURCH_cans = sum(PURCH_cans),
+            total_PURCH_carbs_junk = sum(PURCH_carbs_junk),
+            total_PURCH_carbs_whole = sum(PURCH_carbs_whole),
+            total_PURCH_dairy = sum(PURCH_dairy),
+            total_PURCH_frozen = sum(PURCH_frozen),
+            total_PURCH_fruit = sum(PURCH_fruit),
+            total_PURCH_beef = sum(PURCH_beef),
+            total_PURCH_chicken = sum(PURCH_chicken),
+            total_PURCH_protein_other = sum(PURCH_protein_other),
+            total_PURCH_seafood = sum(PURCH_seafood),
+            total_PURCH_sugar = sum(PURCH_sugar),
+            total_PURCH_veg = sum(PURCH_veg),
+            total_PURCH_prep = sum(PURCH_prep)) %>%
+  distinct() %>%
+  mutate(total_spend = sum(total_PURCH_cans, total_PURCH_carbs_junk, total_PURCH_carbs_whole, total_PURCH_dairy, total_PURCH_frozen, total_PURCH_fruit, total_PURCH_beef, total_PURCH_chicken, total_PURCH_protein_other, total_PURCH_seafood, total_PURCH_sugar, total_PURCH_veg, total_PURCH_prep)) %>%
+    transmute(CUST_id = CUST_id,
+            cans = total_PURCH_cans/total_spend,
+            carbs_junk = total_PURCH_carbs_junk/total_spend,
+            carbs_whole = total_PURCH_carbs_whole/total_spend,
+            dairy = total_PURCH_dairy/total_spend,
+            frozen = total_PURCH_frozen/total_spend,
+            fruit = total_PURCH_fruit/total_spend,
+            beef = total_PURCH_beef/total_spend,
+            chicken = total_PURCH_chicken/total_spend,
+            protein_other = total_PURCH_protein_other/total_spend,
+            seafood = total_PURCH_seafood/total_spend,
+            sugar = total_PURCH_sugar/total_spend,
+            veg = total_PURCH_veg/total_spend,
+            prep = total_PURCH_prep/total_spend) %>%
+  ungroup() %>%
+  full_join(., df_diet_clusters, by = c("CUST_id")) %>%
+  group_by(diet_cluster) %>%
+  summarise(across(where(is.numeric), mean))
+
+#create heatmap matrix
+heatmap_data <- as.matrix(cluster_summary[,-1])
+rownames(heatmap_data) <- paste("Cluster", cluster_summary$diet_cluster)
+```
+
+```{r}
+#| label: "diet cluster heatmap"
+#| title: Diet heatmap visualization
+#| echo: false
+
+heatmap(heatmap_data, Rowv = NA, Colv = NA, scale = "column") 
+```
+:::
+
+:::
+
+# Learn more on the [Posit Quarto Powerpoint presentations website](https://quarto.org/docs/presentations/powerpoint.html)
