@@ -1,0 +1,632 @@
+---
+title: "Interactive data visualizations in R"
+author: "Ginny Ulichney, PhD & Liz Beard, PhD - Research Analysts at Wharton AI and Analytics Initiative"
+#date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    theme: sandstone
+    highlight: default
+---
+
+<style type="text/css">
+
+body{ /* Normal */
+      font-size: 16px;
+  }
+td {  /* Table */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 38px;
+  color: #990000;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: #011F5B;
+}
+h2 { /* Header 2 */
+  font-size: 22px;
+  color: #011F5B;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: #011F5B;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, error = F) #making sure errors, messages, and warnings aren't included in the knit Rmd
+```
+
+# Interactive data visualizations in R: WAIAI on-demand workshop
+
+## Introduction
+
+### What are interactive plots, and what are they used for?
+
+**Interactive plots** are dynamic data visualizations that and respond to viewers' actions (e.g., clicking, hovering).
+
+Interactive plots can be used to...
+
+* Help audiences quickly digest information in complex data visualizations
+
+* Support data-driven decision-making with enhanced synthesis 
+
+* Facilitate stakeholder communication and collaboration
+
+* Enhance strategic clarity, particularly with complex data (e.g., many groups) 
+
+R is a very useful tool for data visualization because it can be used to easily integrate interactive visualizations directly into deliverables, from reports to data dashboards. R is also accessible and open-source with many well-documented packages that can be used to create custom interactive visualizations.
+
+### How do we create compelling interactive plots in R?
+
+1. Define question to be addressed and explore the data
+
+2. Create static versions of each data visualizations following data visualization principles
+
+Plot types we'll examine today include:
+
+  * Line plots
+  
+  * Bar plots
+  
+  * Rank plots
+  
+  * Scatter plots
+
+3. Use common R packages, plotly (Sievert, 2020) and ggiraph (Gohel & Skintzos, 2025), to make custom interactive plots
+  
+
+### Load needed packages
+
+See all software references at the end of the tutorial.
+```{r load packages}
+# load packages and describe their uses
+library(tidyverse) # data cleaning, organization, and visualization
+library(plotly) #key interactive plot package
+library(ggiraph) #key interactive plot package
+library(MetBrewer) #plot customization functions
+library(tidytext) #plot customization functions
+library(ggbump) #plot customization functions
+library(patchwork) #plot customization functions
+
+#color palette
+MetBrew_Signac <- MetBrewer::met.brewer("Signac", n = 21)
+
+## install packages by running install.packages("PACKAGE-NAME")
+## cite packages by running citation(package = "PACKAGE-NAME")
+## load packages by running library(PACKAGE-NAME)
+## specify function from a specific package by running PACKAGE-NAME::function()
+## troubleshoot functions from packages by running ?PACKAGE-NAME::function()
+```
+
+## Define question to be addressed and explore data
+
+**Question to be addressed:** For this tutorial, we will be examining *performance and attendance of women's soccer/football teams*, and how they might be related, in the top-tier league in the United Kingdom. 
+
+**Data:** We will looking at English Women's Football data from the EWF database (The English Women's Football Database, 2025), which is available on Github at the following URL: https://github.com/probjects/ewf-database. You can download the data and access the data dictionary directly at the database link.
+
+```{r matches data}
+#import matches dataset, one row per game per season
+df_matches <- read_csv("./data/ewf_matches.csv") %>%
+  map_df(., ~ gsub("Women", "", .x, fixed = T)) %>%
+  map_df(., ~ gsub("Ladies", "", .x, fixed = T)) %>%
+  map_df(., ~ gsub("Belles", "", .x, fixed = T)) #remove parts of team names since they're used inconsistently, e.g., Arsenal = Arsenal Ladies
+
+#examine data
+head(df_matches)
+```
+
+```{r standings data}
+#import standings dataset, one row per team per season
+df_standings <- read_csv("./data/ewf_standings.csv") %>%
+  map_df(., ~ gsub("Women", "", .x, fixed = T)) %>%
+  map_df(., ~ gsub("Ladies", "", .x, fixed = T)) %>%
+  map_df(., ~ gsub("Belles", "", .x, fixed = T)) 
+
+#examine data
+head(df_standings)
+```
+
+### Attendance
+
+#### Static line plot with ggplot2
+
+```{r line ggplot, fig.width=10, fig.height=8}
+attendanceplot <- df_matches %>% #data organization
+  subset(tier == 1 & season != "2020-2021") %>% #select top tier and exclude 2020 season
+  select(c(home_team_name, attendance, match_name, date, season)) %>% #select only columns of interest
+  group_by(season, home_team_name) %>%
+  mutate(mean_attendance = mean(as.numeric(attendance), na.rm = T)) %>% #add average attendance column, grouped by season and team
+  ungroup() %>% 
+  select(c(home_team_name, mean_attendance, season)) %>% #select needed columns only
+  distinct() %>%
+ggplot(aes(x = as.factor(season), y = as.numeric(mean_attendance), group=as.factor(home_team_name),  color=as.factor(home_team_name))) + #set axes and groups
+  geom_point(size = 2) + #add points to plot
+  geom_path(inherit.aes = TRUE) + #add lines to plot
+  scale_color_manual(values= MetBrew_Signac, name = "Team") + #set color palette
+  theme_classic() + #set theme
+  labs(title = "Average game attendance per home team per season", #add axis labels, caption, and titles/subtitles
+       subtitle = "English Football Women's Super League (tier 1)",
+       x = "Season",  y = "Average game attendance",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database. Excludes 2020-2021.") +
+    theme(legend.position="bottom", #put legend on the bottom 
+          legend.key.size = unit(0.05, "cm")) + #decrease size between legend items
+    theme(legend.text = element_text(size = 10)) + #change legend font size
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.75, hjust = 0.75)) #rotate season labels so they don't overlap
+attendanceplot
+```
+
+#### Interactive line plot with plotly: ggplotly() shortcut
+
+```{r line ggplotly}
+plotly::ggplotly(attendanceplot)
+```
+
+#### Interactive line plot with plotly: plot_ly() longform
+
+```{r line plotly}
+#same data organization as static version
+plotly_df <- df_matches %>%
+  subset(tier == 1 & season != "2020-2021") %>%
+  select(c(home_team_name, attendance, match_name, date, season)) %>% #select only columns of interest
+  group_by(season, home_team_name) %>%
+  mutate(mean_attendance = mean(as.numeric(attendance), na.rm = T)) %>% #add average attendance column, grouped by season and team
+  ungroup() %>%
+  select(c(home_team_name, mean_attendance, season)) %>% #select only columns of interest
+  distinct()
+
+attendanceplotly <- plotly::plot_ly(data = plotly_df, x = ~as.factor(season), y = ~mean_attendance, split = ~home_team_name, color = ~home_team_name, #set axes in plotly
+    type = 'scatter', #set plot type
+    mode = 'lines+markers', #choose items to include in scatter plot
+    text = ~paste("Home team:", home_team_name, "Average attendance:", mean_attendance), #set hover labels
+    hoverinfo = 'text',
+    marker = list(size = 6), #set dot size
+    line = list(width = 2) #set line size
+  ) %>%
+  layout( #set titles, legend, and axis labels
+    title = "Average game attendance per season per home team (double click in legend)", 
+    subtitle = "English Football Women's Super League (tier 1), Source: EWF Database (2025), https://github.com/probjects/ewf-database. Excludes 2020-2021.",
+    hovermode = "closest",
+    legend = list(itemclick = "toggleothers"),
+    xaxis = list(title = "Season"),
+    yaxis = list(title = "Average game attendance")
+  ) 
+attendanceplotly
+```
+
+#### Interactive line plot with ggiraph
+
+```{r line ggiraph}
+#use most of same plot code as static version, but make point and line interactive with ggiraph
+attendanceplot_giraph <- df_matches %>%
+  subset(tier == 1 & season != "2020-2021") %>% #select top tier and exclude 2020 season
+  select(c(home_team_name, attendance, match_name, date, season)) %>% #select only columns of interest
+  group_by(season, home_team_name) %>% 
+  mutate(mean_attendance = round(mean(as.numeric(attendance), na.rm = T), 2)) %>% #add average attendance column, grouped by season and team
+  ungroup() %>%
+  select(c(home_team_name, mean_attendance, season)) %>% #select needed columns only
+  distinct() %>%
+ggplot(aes(x = as.factor(season), y = as.numeric(mean_attendance), group=as.factor(home_team_name),  color=as.factor(home_team_name), #set axes and color
+           tooltip=paste("Team:", home_team_name, "<br>Average attendance:", mean_attendance), #text for interactive hover
+           data_id = as.factor(home_team_name))) + #set data id for hover
+  geom_point_interactive(size = 2, hover_nearest = TRUE) + #add interactive points to plot
+  geom_line_interactive() + #add interactive lines to plot
+  scale_color_manual(values= MetBrew_Signac, name = "Team") + #set color palette
+  theme_classic() + #set theme
+  labs(title = "Average game attendance per home team per season", #add labels for title/subtitle, caption, and axes
+       subtitle = "English Football Women's Super League (tier 1)",
+       x = "Season",  y = "Average game attendance",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database. Excludes 2020-2021.") +
+    theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm"),
+          legend.text = element_text(size = 7)) + #adjust positioning for legend, font size
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.75, hjust = 0.75)) #rotate season labels so they don't overlap
+
+
+css_dot_hover <- girafe_css_bicolor(primary = "aquamarine", secondary = "blue") #set colors to be used for opts_hover
+attendanceplot_giraphplot <- girafe(ggobj = attendanceplot_giraph, options = list(
+                             opts_hover = opts_hover(css = css_dot_hover), #customize fill and outline of hover
+                             opts_tooltip = opts_tooltip(css = "padding:3px;background-color:white;color:black;"), #customize size and colors of text label and background when hovering
+                              opts_sizing(rescale = TRUE, width = 1) #customize resizing
+                )
+              )
+attendanceplot_giraphplot
+```
+
+
+### Performance
+
+#### Total goal differential per team per season
+
+##### Static diverging barplot with ggplot2
+
+```{r div bar ggplot, fig.width=10, fig.height=8}
+goalsdiffplot <- df_standings %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(team_name, goal_difference, goals_for, goals_against, season)) %>% #select columns of interest
+  dplyr::group_by(season) %>%
+  dplyr::arrange(as.numeric(goal_difference)) %>% #reorder by goal difference within season
+  dplyr::ungroup() %>%
+  ggplot(aes(x = reorder(as.factor(team_name), as.numeric(goal_difference)), y = as.numeric(goal_difference), fill=as.factor(team_name), #set x and y axes, and group by team for plot
+             goal_difference_text = goal_difference, team_text = team_name)) + #text for ggplotly labels
+  scale_fill_manual(values=c(MetBrew_Signac), name = "Team name") + #set fill palette
+  scale_color_manual(values=c(MetBrew_Signac), name = "Team name") + #set color palette
+  geom_bar(stat = "identity") + #add bar for barplot
+  theme_classic() + #set theme 
+  coord_flip() + #flip X and Y axis
+  facet_wrap(~season, scales = "free")+ #create facets by season
+  geom_hline(yintercept = 0, linewidth = 0.5, color = "gray") + #add line at 0 (no goal difference)
+  labs(title = "Total goal difference per team per season", #add axis labels, caption, title/subtitle
+      subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database",
+    y = "Goal difference (for-against)", x = "Team") +
+  theme(legend.position="none")
+goalsdiffplot
+```
+
+##### Interactive diverging barplot with plotly (ggplotly())
+
+```{r div bar plotly}
+ggplotly(goalsdiffplot,
+         width = 1000, #adjust width
+         height = 800, #adjust height
+         tooltip = c("team_text", "goal_difference_text") #add hover labels
+         ) 
+```
+
+##### Interactive diverging barplot with ggiraph
+
+```{r div bar ggiraph}
+#use most of same plot code as static version, but make bar interactive with ggiraph
+goalsdiff_giraph <- df_standings %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(team_name, goal_difference, goals_for, goals_against, season)) %>% #select only columns of interest
+  dplyr::group_by(season) %>%
+  dplyr::arrange(as.numeric(goal_difference)) %>%
+  dplyr::ungroup() %>%
+  ggplot(aes(x = reorder(as.factor(team_name), as.numeric(goal_difference)), y = as.numeric(goal_difference), fill=as.factor(team_name),
+             tooltip=paste("Team:", team_name, "<br>Total goal difference:", goal_difference), #text for interactive hover
+             data_id = as.factor(team_name))) +
+  scale_fill_manual(values=c(MetBrew_Signac), name = "Team name") + #set fill palette
+  scale_color_manual(values=c(MetBrew_Signac), name = "Team name") + #set color palette
+  geom_bar_interactive(stat = "identity") + #add interactive bar
+  theme_classic() + #set theme
+  coord_flip() + #flip x and y axis
+  facet_wrap(~season, scales = "free")+ #facet by season
+  geom_hline(yintercept = 0, linewidth = 0.5, color = "gray") +
+  labs(title = "Total goal difference (for-against) per team per season", #add title, subtitle, caption, x and y axis labels
+      subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database",
+    y = "Goal difference (for-against)", x = "Team") +
+  theme(legend.position="none") #remove legend
+
+goalsdiffggiraph_plot <- girafe(ggobj = goalsdiff_giraph,
+                                width_svg = 12,  #adjust width
+                                height_svg = 8, #adjust height
+                                options = list(
+                               opts_hover(css = "fill:aquamarine;stroke:black;cursor:pointer;"))) #customize fill and outline of hover
+goalsdiffggiraph_plot
+```
+
+#### Total points earned per team per season
+
+##### Static stacked frequency barplot with ggplot2
+
+```{r stacked bar ggplot, fig.width=10, fig.height=8}
+pointsplot <- df_standings %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(team_name, points, season)) %>% #select only columns of interest
+  ggplot(aes(x=as.factor(season), y=as.numeric(points), fill=as.factor(team_name), #set x and y axes
+                          points_text = points, team_text = team_name)) + #text for ggplotly labels
+  geom_bar(stat="identity", position = "stack") +
+  scale_fill_manual(values=c(MetBrew_Signac), name = "Team name") + #set fill palette
+  scale_color_manual(values=c(MetBrew_Signac), name = "Team name") + #set color palette
+  labs(title="Points per team by season", #add title, subtitle, caption, x and y axis labels
+       subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Win = 3 points, Draw = 1 point, Loss = 0 points. Source: EWF Database (2025), https://github.com/probjects/ewf-database",
+       x="Season", y = "Points") + 
+  theme_classic()  + 
+  theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+  theme(legend.text = element_text(size = 10)) + #change legend font size
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.75, hjust = 0.75)) #rotate season labels so they don't overlap
+pointsplot
+```
+
+##### Interactive stacked barplot with plotly (ggplotly())
+
+```{r perc bar plotly}
+ggplotly(pointsplot,
+         width = 1000, #adjust width 
+         height = 800, #adjust height 
+         tooltip = c("team_text", "points_text"))
+```
+
+##### Interactive stacked frequency barplot with ggiraph
+
+```{r stacked bar ggiraph}
+points_ggiraph <- df_standings %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(team_name, points, season)) %>% #select only columns of interest
+  ggplot(aes(x=as.factor(season), y=as.numeric(points), fill=as.factor(team_name), #set x and y axes
+             tooltip=paste("Team:", team_name, "<br>Season total points:", points), #text for interactive hover
+             data_id = as.factor(team_name))) + 
+  geom_bar_interactive(stat="identity", position = "stack") + #add interactive bar
+  scale_fill_manual(values=c(MetBrew_Signac), name = "Team name") + #set fill palette
+  scale_color_manual(values=c(MetBrew_Signac), name = "Team name") + #set color palette
+  labs(title="Points per team by season", #add title, subtitle, caption, x and y axis labels
+       subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Win = 3 points, Draw = 1 point, Loss = 0 points. Source: EWF Database (2025), https://github.com/probjects/ewf-database",
+       x="Season", y = "Points") + 
+  theme_classic()  + #set theme
+  theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+  theme(legend.text = element_text(size = 7)) + #change legend font size
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.75, hjust = 0.75)) #rotate season labels so they don't overlap
+
+pointsggiraph_plot <- girafe(ggobj = points_ggiraph, 
+                           options = list(
+                             opts_hover(css = "fill:magenta;stroke:pink;cursor:pointer;"), #customize fill and outline of hover
+                             opts_tooltip = opts_tooltip(css = "padding:2px;background-color:white;color:black;"), #customize size and colors of text label and background when hovering
+                            opts_sizing(rescale = TRUE, width = 1) #customize resizing
+                           )
+     )
+pointsggiraph_plot
+```
+
+#### Team final standings per season
+
+##### Static rank plot with ggplot2
+
+```{r rank ggplot, fig.width=10, fig.height=8}
+rankplot <- df_standings %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(team_name, position, season)) %>% #select only columns of interest
+  ggplot(aes(x = as.factor(season), y = as.numeric(position), color = as.factor(team_name), group = as.factor(team_name), fill = as.factor(team_name), 
+             team_text = team_name, rank_text = position)) + #text for ggplotly labels
+  geom_bump(size = 2) + #add bump plot lines for standings
+  scale_y_reverse(breaks = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)) + #flip y axis scale so top teams appear at top
+  geom_point(size = 4)  + #add points at rank per season
+  scale_fill_manual(values=c(MetBrew_Signac), name = "Team name") + #set fill palette
+  scale_color_manual(values=c(MetBrew_Signac), name = "Team name") + #set color palette
+  theme_classic() + #set plot theme
+  labs(y = "Final position", x = "Season",  #add title, subtitle, caption, x and y axis labels
+       title = "Final position per team by season",
+       subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Missing 2020-2021. Source: EWF Database (2025), https://github.com/probjects/ewf-database") +
+    theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+    theme(legend.text = element_text(size = 10)) + #change legend font size
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.75, hjust = 0.75)) #rotate season labels so they don't overlap
+rankplot
+```
+
+##### Interactive rank plot with plotly (ggplotly())
+
+```{r rank plotly}
+plotly::ggplotly(rankplot,
+         width = 1000, #adjust width
+         height = 800, #adjust height 
+         tooltip = c("team_text", "rank_text") #customize hover labels
+         )
+```
+
+
+## Analysis: associations between game attendance and performance
+
+### Average season game attendance and past season performance (prior season total points earned)
+
+#### Static scatterplot with ggplot2
+
+```{r scatter1 ggplot, fig.width=10, fig.height=8}
+attendance_df <- df_matches %>%
+  subset(tier == 1) %>% #subset only top tier
+  select(c(home_team_name, attendance, match_name, date, season)) %>% #select only columns of interest
+  group_by(season, home_team_name) %>%
+  mutate(mean_attendance = mean(as.numeric(attendance), na.rm = T)) %>% #add average attendance column, grouped by season and team
+  ungroup() %>%
+  select(c(home_team_name, mean_attendance, season)) %>% #select only columns of interest
+  distinct() %>%
+  dplyr::rename("team_name" = "home_team_name") %>%
+  left_join(., df_standings) 
+  
+scatterplot1 <- attendance_df %>%
+  dplyr::group_by(team_name) %>%
+  mutate(lagged_points = lag(as.numeric(points), n = 1)) %>% # create lagged points column from prior season
+  ungroup() %>%
+  subset(season != "2020-2021") %>% #remove 2020-2021, no attendance data due to lockdowns
+  select(c(team_name, mean_attendance, lagged_points, season)) %>% #select only columns of interest
+    ggplot(aes(y=as.numeric(mean_attendance), x = as.numeric(lagged_points))) +  #choose x and y axes, color 
+    geom_point(aes(color = team_name), size = 2) + #add points to plot
+    scale_fill_manual(values= MetBrew_Signac, name = "Team") + #set fill palette
+    scale_color_manual(values= MetBrew_Signac, name = "Team") + #set color palette
+    geom_smooth(color = "black") + #add smoothed line
+    labs(x = "Prior year points",  y = "Average game attendance", #add title, subtitle, caption, x and y axis labels
+       title = "Association between average game attendance and prior year league points",
+       subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database. Missing 2020-2021. Win = 3 points, Draw = 1 point, Loss = 0 points.") +
+    theme_classic() + #set theme
+    theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+    theme(legend.text = element_text(size = 10)) #change legend font size
+scatterplot1
+```
+
+```{r attendance corr, include = F}
+library(rmcorr)
+attendance_df1 <- attendance_df %>%
+  dplyr::group_by(team_name) %>%
+  mutate(lagged_points = lag(as.numeric(points), n = 1)) %>% # create lagged points column from prior season
+  ungroup()
+
+cor.test(attendance_df1$mean_attendance, attendance_df1$lagged_points, use = "pairwise.complete.obs", method = "pearson")
+
+rmc.out <- rmcorr(participant = team_name, measure1 = lagged_points, measure2 = mean_attendance, dataset = attendance_df1)
+rmc.out
+```
+
+#### Interactive scatterplot with plotly (ggplotly())
+
+```{r scatter1 plotly}
+plotly::ggplotly(scatterplot1)
+```
+
+#### Interactive scatterplot with ggiraph
+
+```{r scatter1 ggiraph}
+scatterplot1_giraph <- attendance_df %>%
+    dplyr::group_by(team_name) %>%
+  mutate(lagged_points = lag(as.numeric(points), n = 1)) %>% # create lagged points column from prior season
+  ungroup() %>%
+    subset(season != "2020-2021") %>% #remove 2020-2021, no attendance data due to lockdowns
+  select(c(team_name, mean_attendance, lagged_points, season)) %>% #select only columns of interest
+    ggplot(aes(y=as.numeric(mean_attendance), x = as.numeric(lagged_points),
+          tooltip=paste("Team:", team_name, "<br>Season:", season, "<br>Mean attendance:", mean_attendance, "<br>Prior year points:", lagged_points), #text for interactive hover
+             data_id = as.factor(team_name))) +  #choose x and y axes, color
+    geom_point_interactive(aes(color = team_name), size = 2) + #add points to plot
+    scale_fill_manual(values= MetBrew_Signac, name = "Team") + #set fill palette
+    scale_color_manual(values= MetBrew_Signac, name = "Team") + #set color palette
+    geom_smooth_interactive(aes(tooltip = "smoothed line", data_id = "smooth_line"), method = "loess", se = TRUE, color = "black") + #add interactive line
+    labs(x = "Prior year points",  y = "Average game attendance", #add title, subtitle, caption, x and y axis labels
+       title = "Association between average game attendance and prior year league points",
+       subtitle = "English Football Women's Super League (tier 1)",
+       caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database. Missing 2020-2021. Win = 3 points, Draw = 1 point, Loss = 0 points.") +
+    theme_classic() + #set theme
+    theme(legend.position="bottom",
+          legend.key.size = unit(0.05, "cm")) + #put legend on the bottom and decrease size between items
+    theme(legend.text = element_text(size = 8)) #change legend font size
+
+css_dot_hover <- girafe_css_bicolor(primary = "aquamarine", secondary = "blue") #set colors to be used for opts_hover
+scatterplot1_giraphplot <- girafe(ggobj = scatterplot1_giraph, options = list(
+                             opts_hover = opts_hover(css = css_dot_hover), #customize fill and outline of hover
+                             opts_tooltip = opts_tooltip(css = "padding:3px;background-color:white;color:black;"), #customize size and colors of text label and background when hovering
+                              opts_sizing(rescale = TRUE, width = 1) #customize resizing
+                )
+              )
+scatterplot1_giraphplot
+```
+
+
+## Multi-panel interactive plots
+
+```{r multipanel}
+#reconfigure legends and labels to fit into one multiplot
+scatterplot1_giraph <- scatterplot1_giraph + theme(legend.position="bottom")  +
+  labs(caption = "",
+       title = "Teams with better outcomes in a season had more fan attendance in the next.") #fix labels
+
+points_ggiraph <- points_ggiraph + theme(legend.position="none") + 
+  labs(title = "Total points by season", y = "Total points", subtitle = "", caption = "Source: EWF Database (2025), https://github.com/probjects/ewf-database") #fix labels
+
+attendanceplot_giraph <- attendanceplot_giraph + theme(legend.position="none") +
+  labs(title = "Mean attendance by season", y = "Mean attendance", subtitle = "", caption = "") #fix labels
+
+multipanels <- scatterplot1_giraph / (attendanceplot_giraph + points_ggiraph) #create multi-panel plot with patchwork using plots saved above
+
+girafe(ggobj = multipanels, #render multi-panel plot with ggiraph
+       width_svg = 10,  #adjust width
+       height_svg = 6, #adjust height
+       options = list(opts_hover(css = "fill:skyblue;stroke:black;cursor:pointer;"), #customize fill and outline of hover
+                      opts_tooltip = opts_tooltip(css = "padding:3px;background-color:white;color:black;") #customize size and colors of text label and background when hovering
+       )
+    )
+```
+
+
+## What did we learn?
+
+In this tutorial, we:
+
+1. Learned a workflow to create interactive plots in R to clarify complex data:
+
+  * Make static visualizations and ensure plots follow data visualization principles
+  
+  * Build interactive plots with plotly (Sievert, 2020) and ggiraph  (Gohel & Skintzos, 2025) that can be customized depending on components of interest
+  
+2. Created interactive plots in R to display data of interest for tier 1 English Women's Football league teams (The English Women's Football Database, 2025), such as...
+  
+  * **Line plots** showing teams' averages on home game attendance by season
+  
+  * **Barplots** and **stacked barplots** showing teams' performance (goal difference and points) within seasons
+  
+  * **Rank plots** showing teams' positions over seasons 
+  
+  * **Scatter plots** showing associations between teams' home game attendance and score margin across seasons
+  
+3. Polished a deliverable-ready, interactive multi-paneled plot 
+
+Happy plotting!
+
+## References & Additional Resources
+
+### Additional resources
+
+* [Wharton AI and Analytics Initiative on-demand learning resources](https://ai-analytics.wharton.upenn.edu/for-students/on-demand-learning/)
+* [UPenn Library Guides R/RStudio resources](https://guides.library.upenn.edu/rpg)
+* [UPenn Library Guides R for Business guide by Kevin Thomas](https://guides.library.upenn.edu/r-business/overview)
+* [R for Data Science (2nd edition) by Hadley Wickham, Mine Çetinkaya-Rundel, and Garrett Grolemund](https://r4ds.hadley.nz)
+* [Modern Data Visualization in R by Robert Kabacoff](https://rkabacoff.github.io/datavis/)
+* [plotly open source graphic libraries manual](https://plotly.com/graphing-libraries/)
+* [plotly figure structure R documentation](https://plotly.com/r/figure-structure/)
+* [ggiraph book by David Gohel](https://www.ardata.fr/ggiraph-book/)
+* [ggiraph package documentation](https://davidgohel.github.io/ggiraph/index.html)
+
+### References
+
+R Core Team (2025). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing, Vienna, Austria. <https://www.R-project.org/>.
+
+The English Women's Football (EWF) Database. (2025). https://github.com/probjects/ewf-database
+
+Wickham H, Averick M, Bryan J, Chang W, McGowan LD, François R, Grolemund G, Hayes A, Henry L, Hester J, Kuhn M, Pedersen
+  TL, Miller E, Bache SM, Müller K, Ooms J, Robinson D, Seidel DP, Spinu V, Takahashi K, Vaughan D, Wilke C, Woo K, Yutani H
+  (2019). “Welcome to the tidyverse.” _Journal of Open Source Software_, *4*(43), 1686. doi:10.21105/joss.01686
+  <https://doi.org/10.21105/joss.01686>.
+  
+C. Sievert. Interactive Web-Based Data Visualization with R, plotly, and shiny. Chapman and Hall/CRC Florida, 2020.
+
+Sjoberg D (2020). _ggbump: Bump Chart and Sigmoid Curves_. doi:10.32614/CRAN.package.ggbump
+  <https://doi.org/10.32614/CRAN.package.ggbump>, R package version 0.1.0,
+  <https://CRAN.R-project.org/package=ggbump>.
+
+Silge J, Robinson D (2016). “tidytext: Text Mining and Analysis Using Tidy Data Principles in R.” _JOSS_,
+  *1*(3). doi:10.21105/joss.00037 <https://doi.org/10.21105/joss.00037>, <http://dx.doi.org/10.21105/joss.00037>.
+
+Gohel D, Skintzos P (2025). _ggiraph: Make 'ggplot2' Graphics Interactive_. doi:10.32614/CRAN.package.ggiraph
+  <https://doi.org/10.32614/CRAN.package.ggiraph>, R package version 0.9.1,
+  <https://CRAN.R-project.org/package=ggiraph>.
+  
+Pedersen T (2024). _patchwork: The Composer of Plots_. doi:10.32614/CRAN.package.patchwork
+  <https://doi.org/10.32614/CRAN.package.patchwork>, R package version 1.3.0,
+  <https://CRAN.R-project.org/package=patchwork>.
+
+Mills BR (2022). _MetBrewer: Color Palettes Inspired by Works at the Metropolitan Museum of Art_.
+  doi:10.32614/CRAN.package.MetBrewer <https://doi.org/10.32614/CRAN.package.MetBrewer>, R package version 0.2.0,
+  <https://CRAN.R-project.org/package=MetBrewer>.
+  
+Allaire J, Xie Y, Dervieux C, McPherson J, Luraschi J, Ushey K, Atkins A, Wickham H, Cheng J, Chang W, Iannone R (2024).
+  _rmarkdown: Dynamic Documents for R_. R package version 2.29, <https://github.com/rstudio/rmarkdown>.
+
+Xie Y, Allaire J, Grolemund G (2018). _R Markdown: The Definitive Guide_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+  9781138359338, <https://bookdown.org/yihui/rmarkdown>.
+
+Xie Y, Dervieux C, Riederer E (2020). _R Markdown Cookbook_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+  9780367563837, <https://bookdown.org/yihui/rmarkdown-cookbook>.
+  
+Xie Y (2025). _knitr: A General-Purpose Package for Dynamic Report Generation in R_. R package version 1.50,
+  <https://yihui.org/knitr/>.
+
+Yihui Xie (2015) Dynamic Documents with R and knitr. 2nd edition. Chapman and Hall/CRC. ISBN 978-1498716963
+
+Yihui Xie (2014) knitr: A Comprehensive Tool for Reproducible Research in R. In Victoria Stodden, Friedrich Leisch and
+  Roger D. Peng, editors, Implementing Reproducible Computational Research. Chapman and Hall/CRC. ISBN 978-1466561595
+  
+Posit team (2025). RStudio: Integrated Development Environment for R. Posit Software, PBC, Boston, MA. URL
+  http://www.posit.co/.
+
+```{r session info, echo = F}
+sessioninfo::session_info()
+```
