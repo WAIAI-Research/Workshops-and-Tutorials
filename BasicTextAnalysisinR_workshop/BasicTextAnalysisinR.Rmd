@@ -1,0 +1,836 @@
+---
+title: "Basic Text Analysis in R"
+author: "Ginny Ulichney, PhD - Research Analyst at Wharton AI and Analytics Initiative"
+#date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: yes
+    toc_float:
+      collapsed: yes
+    theme: sandstone
+    highlight: default
+---
+
+<style type="text/css">
+
+body{ /* Normal */
+      font-size: 16px;
+  }
+td {  /* Table */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 38px;
+  color: #990000;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: #011F5B;
+}
+h2 { /* Header 2 */
+  font-size: 22px;
+  color: #011F5B;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  color: #011F5B;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F, error = F) #making sure errors and warnings aren't included in the knit Rmd
+```
+
+# Basic Text Analysis in R: WAIAI on-demand workshop
+
+## Introduction
+
+### What is text analysis?
+
+**Text analysis** is quantitative analysis that is used to make unstructured text, such as reviews, open-ended survey responses, or customer tickets, usable for analysis in a range of settings. Text analysis results are typically observational, but can provide useful exploratory insights and support hypothesis generation.
+
+### How can basic text analysis be used to provide insight?
+
+1. Define question to be addressed
+  
+2. Obtain text data after evaluating data sources, quality, and any ethical considerations
+  
+3. Conduct exploratory data analyses
+
+4. Apply text analysis techniques, such as (but not limited to):
+
+  + **Sentiment analysis** for quantifying positive and negative linguistic sentiment
+
+  + **Term frequency and keyword extraction** to examine important terms 
+
+  + **Topic modeling or cluster analyses** to summarize themes
+
+  + **Text classification** to categorize text into labels of interest
+  
+5. Interpret and visualize results
+  
+6. Formulate insights
+ 
+ 
+## Load packages
+
+See all software references at the end of the tutorial.
+```{r load libraries, message = F, warning = F}
+#load packages and comment their uses
+library(tidyverse) #data cleaning, organization, and visualization
+library(psych) #summarize descriptive statistics and distributions
+library(stringr) #data cleaning, organization, and visualization
+library(skimr) #summarize descriptive statistics and distributions
+library(tidytext) #sentiment analysis, text cleaning, and word frequency
+library(textclean) #text cleaning and word frequency
+library(wordcloud) #text cleaning and word frequency
+library(tm) #word association
+library(vader) #sentiment analysis
+library(topicmodels) #topic modeling
+library(MetBrewer) #plot color palettes
+
+# color palette
+MetBrew_Egypt <- MetBrewer::met.brewer("Egypt", n = 5)
+MetBrew_Tam <- MetBrewer::met.brewer("Tam", n = 15)
+```
+
+
+## Text data cleaning and exploration
+
+**Data source:** random subset of 10,000 reviews (2% of dataset) from the Amazon Fine Foods reviews dataset (McAuley & Leskovec, 2013), learn more and download data here: https://snap.stanford.edu/data/web-FineFoods.html
+
+```{r load data}
+#read data downloaded from Amazon Fine Foods reviews source
+df_raw <- read.delim("../foods.txt", header = F) #load raw data saved to wd
+df_raw$V1 <- iconv(df_raw$V1, from = "", to = "UTF-8") #convert all text to UTF-8
+
+#cleaning raw dataframe to create one column per item within V1, one row per review using regex and dplyr
+df <- df_raw %>%
+  dplyr::mutate(V1 = str_split(V1, "\\n")) %>% 
+  unnest(V1) %>%
+  dplyr::mutate(V1 = str_trim(V1)) %>%
+  dplyr::filter(V1 != "") %>%
+  dplyr::mutate(V1 = str_split(V1, "(?=review/) | (?=product/)")) %>%
+  unnest(V1) %>%
+  dplyr::mutate(V1 = str_trim(V1)) %>%
+  dplyr::filter(V1 != "")  %>%
+  dplyr::mutate(names = str_extract(V1, "^review/\\w+|^product/\\w+"),
+         values = str_remove(V1, "^review/\\w+:\\s*|^product/\\w+:\\s*")) %>%
+  select(names, values) %>%
+  dplyr::mutate(review_id = as.numeric(cumsum(names == "product/productId"))) %>%
+  pivot_wider(names_from = names, values_from = values) %>%
+  select(-c("review/time", "review/summary", "review/profileName")) %>%
+  rename("productId" = "product/productId",
+         "userId" = "review/userId",
+         "score" = "review/score",
+         "text" = "review/text") %>%
+    dplyr::mutate(userId = match(userId, sample(unique(userId))),
+                productId = match(productId, sample(unique(productId)))) %>%
+  select(c("review_id", "productId", "userId", "score", "text")) %>%
+  as.data.frame() 
+
+#save new ids as categorical variables
+df$review_id <- as.factor(df$review_id)
+df$userId <- as.factor(df$userId)
+df$productId <- as.factor(df$productId)
+
+rm(df_raw) #remove giant raw dataset from environment
+
+set.seed(22) #set seed to sample reproducibly
+df <- df %>% 
+  dplyr::slice_sample(n = 10000) %>% #take random set of 10000 reviews - 8 rows each
+  unnest(c(2:5)) #unnest list cols
+
+#replace "NULL" with NA
+df[df=="NULL"] <- NA
+
+#write.csv(df, "./foods_small.csv") ## optional: save small top 10000 reviews for future use
+#df <- read.csv("./foods_small.csv") %>% select(-c(X)) #optional: read in saved data to save future pre-processing time
+
+#examine text data
+knitr::kable(skim(df)) #overview of data
+```
+
+*Takeaway:* We should have 5 columns in the "df" dataframe that represent a random subset of 10,000 Amazon Fine Foods review data that we will be using for this tutorial:
+  
+  * **review_id** (factor): review identifier (*created during data cleaning based on row number*)
+    
+  * **productId** (factor): product identifier for product being reviewed (*replaced with sequential number ID during data cleaning*)
+  
+  * **userId** (factor): reviewer identifier (*replaced with sequential number ID during data cleaning*)
+  
+  * **score** (character): number of stars given by the reviewer
+  
+  * **text** (character): complete review text
+  
+**Question to be addressed:** What are some common customer experiences and painpoints with Amazon Fine Foods products?
+
+
+## Exploratory data analysis
+
+### Distribution of review scores
+```{r EDA 1}
+#descriptive stats
+psych::describe(df$score) #describe scores
+
+#plot scores
+df %>% 
+  drop_na(score) %>% 
+  ggplot(aes(x = as.factor(score))) +
+  geom_bar(color = "darkgray", fill = "gray") +
+  labs(title = "Frequency of review scores", 
+       x = "Score", y = "Frequency") +
+  theme_classic()
+```
+
+*Takeaway:* Most reviews have 5 stars.
+
+
+### Average number of reviews per product
+```{r EDA 2}
+df %>% 
+  count(productId) %>% 
+  psych::describe() #describe number of reviews per product
+
+#plot number of reviews per product
+df %>% 
+  count(productId)  %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "darkgray", fill = "gray", binwidth = 5) +
+  labs(title = "Frequency of reviews per product", 
+       x = "Review count per product", y = "Frequency") +
+  theme_classic()
+```
+
+*Takeaway:* Most products have several reviews.
+
+
+### Comparing review scores of highly-reviewed and non-highly-reviewed products
+```{r EDA 3}
+#examine whether review scores vary among highly reviewed and non-highly-reviewed products
+df <- df %>% 
+  add_count(productId, name = "n_reviews") %>% #add column with count for number of reviews 
+  dplyr::group_by(productId) %>%
+  dplyr::mutate(highly_reviewed = ifelse(n_reviews > 2.84, "highly-reviewed", "not highly-reviewed")) %>% #create new column denoting if product is above/below mean of n reviews
+  dplyr::ungroup() 
+
+psych::describeBy(df$score, df$highly_reviewed) #examine whether scores differ on number of reviews
+
+#plot scores by high/low review
+df %>% 
+  drop_na(score) %>%
+  ggplot(aes(x = as.factor(score))) +
+  geom_bar(color = "darkgray", fill = "gray") +
+  labs(title = "Frequency of review scores for highly-reviewed and not-highly-reviewed products",
+       x = "Score", y = "Frequency") +
+  theme_classic() +
+  facet_wrap(~highly_reviewed)
+```
+
+*Takeaway:* Products that received more reviews than the mean and products that received fewer don't differ substantially in terms of the distributions of stars given.
+
+
+### Average number of reviews per reviewer
+```{r EDA 4}
+df %>% 
+  count(userId) %>% 
+  psych::describe() #describe number of reviews per reviewer
+
+#plot number of reviews per reviewer
+df %>% 
+  count(userId)  %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(color = "darkgray", fill = "gray", binwidth = 1) +
+  labs(title = "Frequency of reviews per reviewer", 
+       x = "Review count per reviewer", y = "Frequency") +
+  theme_classic()
+```
+
+*Takeaway:* Most reviewers reviewed only once in this subset.
+
+
+### Examine wordcount
+```{r wordcount}
+#add wordcount column
+df <- df %>%
+  as.data.frame() %>%
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(review_wordcount = str_count(text, pattern = "\\w+")) %>% #add wordcount column using regex
+  dplyr::ungroup() 
+df$review_wordcount <- as.numeric(df$review_wordcount)
+
+#examine results
+psych::describe(df$review_wordcount) #describe wordcount
+hist(df$review_wordcount, breaks = 100) #wordcount histogram
+```
+
+*Takeaway:* Review length is relatively short.
+
+```{r wordcount and score}
+#plot review score and review length
+df %>%
+  subset(review_wordcount <= (84.64+(3*82.70))) %>% #subset to remove review length outliers more than 3 SD from average review length
+  ggplot(aes(y = as.numeric(review_wordcount), x = as.factor(score), color = as.factor(score), fill = as.factor(score))) +
+  geom_jitter(size = 1, color = "gray") +
+  geom_violin(alpha = 0.7) +
+  scale_fill_manual(values = MetBrew_Egypt) +
+  scale_color_manual(values = MetBrew_Egypt) +
+  geom_boxplot(width = 0.1, color = "white") +
+  labs(x = "Review Score", y = "Review wordcount") +
+  theme_classic() +
+  theme(legend.position = "none") 
+```
+
+*Takeaway:* Review scores do not appear to vary much with length.
+
+## Text cleaning
+
+* Some analyses suggest text cleaning to reduce noise and improve analysis accuracy and efficiency, and should be used only when recommended.
+
+* Here, we will clean text by placing it in lowercase, removing extra whitespace, and replacing numeric characters with words (e.g., "1" -> "one"). 
+
+* We will also create a version of the text data with further cleaning that is needed for some analyses, with:
+  + punctuation removed and contractions replaced
+  + lemmatization (i.e., changed to its morphological base, so "running" and "ran" become "run").
+  + stopwords removed (i.e., common words that do not often have universal meaning in some text analyses, e.g., "the," "a"), and
+  + tokenization (i.e., one token per row; here, one word per row)
+
+* Refer to best practices and documentation for specific analyses on which text cleaning steps are recommended (if any).
+
+  + Consider whether an analysis is compositional (i.e., takes context into account vs. considering each word individually) before implementing text cleaning steps.
+  
+  + Sensitivity analyses can be a great tool to examine whether results change with and without text cleaning.
+  
+* Be transparent about text cleaning steps taken when sharing results.
+
+```{r clean text}
+#placing all text in lowercase, replacing numbers with numeric in text, and removing extra white space to clean text up
+df$text <- tolower(df$text) #place all text in lowercase
+df$text <- trimws(df$text) #remove extra whitespace
+df$text <- textclean::replace_number(df$text, remove = T) #replace numeric characters
+df$text <- gsub("[0-9]+", "", df$text) #remove any remaining numbers altogether
+df$text <- gsub("<[^>]*>", "", df$text) #remove css tags contained in < >
+
+#see results
+knitr::kable(head(df[, c("review_id", "text", "review_wordcount")], n = 5))
+```
+
+```{r clean text 2}
+df_words <- df #save separate lemmatized df
+df_words$text <- textclean::replace_contraction(df_words$text) #replace contractions
+df_words$text <- gsub("[[:punct:]]", "", df_words$text) #remove remaining punctuation
+df_words$text <- textstem::lemmatize_strings(df_words$text) #lemmatize words
+
+#tokenize
+df_words <- df_words %>% 
+  tidytext::unnest_tokens(word, text, token = "words") %>% 
+  dplyr::filter(!is.na(word))
+
+stopwords <- subset(stop_words, lexicon == "snowball") #select stopword lexicon
+
+#remove stopwords from data
+df_words <- df_words %>% 
+  dplyr::filter(!word %in% stopwords$word) %>% 
+  dplyr::filter(!is.na(word)) 
+
+#see results
+knitr::kable(head(df_words[, c("review_id", "word")], n = 5)) #top 5 rows
+```
+
+## Basic text analysis
+
+### Examining frequent words and keywords
+
+#### Most frequent words and bigrams
+
+##### Most frequent words
+```{r frequent words}
+#frequent word count dataframe
+df_count <- df_words %>%
+  count(word, sort = TRUE)
+
+#show top frequent words table
+knitr::kable(head(df_count, n = 25))
+
+## frequent words wordcloud
+wordcloud(df$text, min.freq = 500, colors = brewer.pal(12, "Dark2"))
+
+#compare most frequent words among high and low scored reviews
+df_stars <- df %>%
+  dplyr::select(c(review_id, score)) %>%
+  dplyr::mutate(high_low_score = ifelse(score == "1.0" | score == "2.0", "low",
+                                 ifelse(score == "5.0", "high", NA))) #create high/low review score column
+
+#plot top 25 words in high and low score reviews
+df_words %>%
+  left_join(., df_stars, by = c("review_id")) %>%
+  subset(!is.na(high_low_score)) %>%
+  dplyr::group_by(high_low_score) %>%
+  count(word, sort = TRUE) %>% 
+  top_n(n = 25) %>% 
+  dplyr::mutate(word = reorder(word, n)) %>% 
+  dplyr::ungroup() %>%
+    ggplot(aes(n, reorder_within(word, n, high_low_score))) + 
+    geom_col(color = "gray", fill = "darkgray") +
+    labs(y = "Word", x = "Frequency ", title = "Amazon fine foods reviews subset top 25 most frequent words",
+         subtitle = "Among high-scoring (5 star) and low-scoring (1 or 2 star) reviews") +
+    geom_text(aes(label = n), hjust = 1, colour = "white") +
+    theme_classic() +
+    facet_wrap(~high_low_score, scales = "free")
+```
+
+*Takeaway:* The top few words across all reviews are "good," "like," "much," "can," and "taste". 5-star reviews and 1- and 2-star reviews feature fairly similar words, although each word is taken out of context here.
+
+###### Sensitivity analysis: Compare to most frequent words without text cleaning
+```{r frequent words sensitivity}
+#frequent word count with raw text
+df_count2 <- df %>%
+  tidytext::unnest_tokens(word, text, token = "words") %>% #redo tokenization on raw text without cleaning
+  dplyr::filter(!is.na(word)) %>%
+  count(word, sort = TRUE) #count occurrences of raw words
+
+#top frequent words table
+knitr::kable(head(df_count2, n = 25)) #show top 25 words
+```
+
+##### Most frequent bigrams
+```{r frequent bigrams}
+#frequent bigram count
+df_bigrams <- df %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>% #repeat tokenization where token = bigram
+  dplyr::filter(!is.na(bigram)) %>%
+  tidyr::separate(bigram, c("word1", "word2"), sep = " ") %>%
+  dplyr::filter(!word1 %in% stopwords$word,
+         !word2 %in% stopwords$word)  #remove stopwords
+
+df_bigrams$word1 <- textstem::lemmatize_strings(df_bigrams$word1) #lemmatize words 
+df_bigrams$word2 <- textstem::lemmatize_strings(df_bigrams$word2) #lemmatize words
+
+#paste both words in bigram together in new column
+df_bigrams <- df_bigrams %>%
+  dplyr::mutate(bigram = paste(word1, word2, sep = " ")) %>%
+  select(-c(word1, word2)) %>%
+  count(bigram, sort = TRUE) 
+
+#top frequent bigrams table
+knitr::kable(head(df_bigrams, n = 25))
+
+#compare high and low scored reviews
+bigram_df_plot <- df %>%
+  left_join(., df_stars, by = c("review_id")) %>%
+  subset(!is.na(high_low_score)) %>%
+  dplyr::group_by(high_low_score) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  dplyr::filter(!is.na(bigram)) %>%
+  tidyr::separate(bigram, c("word1", "word2"), sep = " ") %>%
+  dplyr::filter(!word1 %in% stopwords$word,
+         !word2 %in% stopwords$word)  #remove stopwords
+
+bigram_df_plot$word1 <- textstem::lemmatize_strings(bigram_df_plot$word1) #lemmatize words
+bigram_df_plot$word2 <- textstem::lemmatize_strings(bigram_df_plot$word2) #lemmatize words
+
+#plot top bigrams in high and low scoring reviews
+bigram_df_plot %>%
+  dplyr::mutate(bigram = paste(word1, word2, sep = " ")) %>%
+  select(-c(word1, word2)) %>%
+  count(bigram, sort = TRUE) %>% 
+  top_n(n = 25) %>% 
+  dplyr::mutate(bigram = reorder(bigram, n)) %>% 
+  dplyr::ungroup() %>%
+    ggplot(aes(n, reorder_within(bigram, n, high_low_score))) + 
+    geom_col(color = "gray", fill = "darkgray") +
+    labs(y = "Bigram", x = "Frequency ", title = "Amazon fine foods reviews top 25 most frequent bigrams",
+         subtitle = "Among high-scoring (5 star) and low-scoring (1 or 2 star) reviews") +
+    geom_text(aes(label = n), hjust = 1, colour = "white") +
+    theme_classic() +
+    facet_wrap(~high_low_score, scales = "free")
+```
+
+*Takeaway:* The top bigrams words across all reviews are "gluten free," "green tea," "dog food," "highly recommend," and "k cup". 5-star and 1-and 2-star reviews feature some of these (e.g., "k cup," "gluten free," "dog food," "green tea"), while 5-star reviews feature some more positive bigrams ("highly recommend," "great product," "really good," "taste great") 1- and 2-star reviews feature some more negative bigrams ("taste like," "look like," "never buy").
+
+###### Sensitivity analysis: Compare to most frequent bigrams without text cleaning
+```{r frequent bigrams sensitivity}
+#frequent bigrams with raw text
+df_bigrams2 <- df %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>% #tokenize bigrams without further cleaning
+  dplyr::filter(!is.na(bigram)) %>%
+  tidyr::separate(bigram, c("word1", "word2"), sep = " ") %>%
+  dplyr::mutate(bigram = paste(word1, word2, sep = " ")) %>%
+  select(-c(word1, word2)) %>%
+  count(bigram, sort = TRUE)
+
+#top frequent bigrams table
+knitr::kable(head(df_bigrams2, n = 25))
+```
+
+##### Examine most frequent words via Document-Term Matrix and correlated terms
+
+```{r DTM}
+#create document-term matrix from tf-idf
+df_dtm <- df_words %>%
+  count(review_id, word, sort = TRUE) %>% #count words per review
+  tidytext::bind_tf_idf(term = 'word',
+              document = 'review_id',
+              n = 'n') %>% #add term frequency info
+  dplyr::filter(!is.na(tf)) %>%
+  dplyr::select(review_id, word, n) %>%
+  pivot_wider(id_cols = "review_id", names_from = "word", values_from = "n") %>% #pivot wider
+  column_to_rownames(var='review_id') %>%
+  as.data.frame()
+
+#replace NA with 0 for DTM
+df_dtm[is.na(df_dtm)] <- 0
+
+#show top few rows to show example of DTM
+knitr::kable(head(df_dtm[,c(1:20)], n = 5)) #select top few words in DTM 
+```
+
+```{r find assoc all}
+#cast DTM using tidytext cast_dtm
+data_dtm <- df_words %>% 
+  dplyr::count(review_id, word) %>% #count words per review
+  dplyr::mutate(review_id = as.numeric(review_id)) %>%
+  tidytext::cast_dtm(document = review_id, term = word, value = n) #cast document term matrix
+
+#find frequent terms with over 1000 uses using tm package
+findFreqTerms(data_dtm, 1000)
+
+#which words are correlated with "find"?
+findAssocs(data_dtm, c("find"), (0.15))
+```
+
+*Takeaway:* Across all reviews, the most common terms by word frequency are "find," "flavor," "get," "good," and "look". "Find" is most correlated with "will," "store," "much," "cheap," and "amazon".
+
+```{r find assoc 5star}
+#frequent and associated terms for 5-star reviews
+data_dtm_high <- df_words %>% 
+  subset(score == "5.0") %>%
+  dplyr::count(review_id, word) %>%
+  dplyr::mutate(review_id = as.numeric(review_id)) %>%
+  tidytext::cast_dtm(document = review_id, term = word, value = n)
+
+findFreqTerms(data_dtm_high, 500)
+
+#which words are correlated with "find"?
+findAssocs(data_dtm_high, c("find"), (0.15))
+```
+
+*Takeaway:* The most common terms in 5-star reviews by word frequency are "love," "package," "really," "brand," and "eat". "Find" is most correlated with "hard," "can," "store," "amazon," and "appall". 
+
+```{r find assoc 1-2star}
+#frequent and associated terms for 1 or 2-star reviews
+data_dtm_low <- df_words %>% 
+  subset(score == "1.0" | score == "2.0") %>%
+  dplyr::count(review_id, word) %>%
+  dplyr::mutate(review_id = as.numeric(review_id)) %>%
+  tidytext::cast_dtm(document = review_id, term = word, value = n)
+
+findFreqTerms(data_dtm_low, 300)
+
+#which words are correlated with "find"?
+findAssocs(data_dtm_low, c("find"), (0.15))
+```
+
+*Takeaway:* The most common terms in 1 and 2-star reviews by word frequency are "get," "good," "flavor," "make," and "order". "find" is most correlated with "casei," "dependant," and "physiology", "react", and "rockstar". 
+
+### Topic model (LDA)
+
+We can summarize the topics discussed across all reviews using Latent Dirichlet Allocation (LDA) topic modeling (Blei, Ng, & Jordan, 2003). There are many approaches for topic modeling but LDA is a common one and effective to provide an overview of review content here.
+
+```{r lda}
+#estimate an LDA topic model with 15 topics
+set.seed(2025)
+reviews_lda <- topicmodels::LDA(data_dtm, k = 15, list = control(seed = 2025)) #run topic model with 15 topics
+
+#get top 15 terms per topic
+knitr::kable(topicmodels::get_terms(reviews_lda, 15))
+
+#visualize top 5 words per topic
+tidytext::tidy(reviews_lda, matrix = "beta") %>%
+  dplyr::group_by(topic) %>%
+  top_n(5, beta) %>% #count words with highest beta per topic
+  dplyr::ungroup() %>%
+  ggplot(aes(x = beta, y = reorder_within(term, beta, topic), fill = as.factor(topic))) +
+  geom_col() +
+  scale_fill_manual(values = MetBrew_Tam) +
+  scale_color_manual(values = MetBrew_Tam) +
+  facet_wrap(~ topic, scales = "free") +
+  labs(title = "Top 5 words per LDA topic across Amazon fine food reviews subset",
+       x = "Probability of word belonging to topic (beta)", y = "Word") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+*Takeaway:* This subset of reviews is primarily about specific products or broader consumer experiences such as finding items, pricing, and shipping.
+
+##### Sensitivity analysis: Compare to LDA done without text cleaning
+```{r lda sensitivity}
+#redoing DTM as shown above without text cleaning prior to tokenization
+data_dtm2 <- df %>%
+  tidytext::unnest_tokens(word, text, token = "words") %>% 
+  dplyr::filter(!is.na(word)) %>%
+  dplyr::count(review_id, word) %>%
+  dplyr::mutate(review_id = as.numeric(review_id)) %>%
+  tidytext::cast_dtm(document = review_id, term = word, value = n)
+
+#estimate an LDA topic model with 15 topics
+reviews_lda2 <- topicmodels::LDA(data_dtm2, k = 15, list = control(seed = 2025)) #run topic model
+
+#get top 15 terms per topic
+knitr::kable(topicmodels::get_terms(reviews_lda2, 15))
+```
+
+### Basic sentiment analysis
+
+#### Using a compositional method (Valence Aware Dictionary and sEntiment Reasoner, i.e., VADER; Hutto & Gilbert, 2014)
+
+```{r vader}
+#get VADER compound sentiment scores for each review using minimally-cleaned text data since it is compositional
+df_vader <- df %>%
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(vader_output = vader::vader_df(text)) %>% #use vader package to assign sentiment values per review
+  dplyr::mutate(sentiment_vader = vader_output$compound) %>% #create new column for compound vader sentiment score
+  select(-c(vader_output)) %>% #remove extraneous vader output
+  dplyr::ungroup() %>%
+  as.data.frame()
+
+#examine sentiment
+knitr::kable(skim(df_vader))
+
+#histogram of sentiment
+hist(df_vader$sentiment_vader)
+
+#see what goes into compound sentiment breakdown
+df_vader_breakdown <- df_vader %>%
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(vader_output = vader_df(text)) %>% #generate vader output
+  dplyr::mutate(prop_positive = vader_output$pos, #create columns showing proportion of each review that are positive, negative, and neutral
+         prop_neutral = vader_output$neu,
+         prop_negative = vader_output$neg) %>%
+  select(review_id, prop_positive, prop_neutral, prop_negative) %>%
+  dplyr::ungroup() %>%
+  pivot_longer(cols = c(prop_positive, prop_neutral, prop_negative), names_to = "sentiment_vader", values_to = "proportion") %>%
+  dplyr::mutate(sentiment_vader = factor(sentiment_vader, levels = c("prop_negative","prop_neutral","prop_positive"), labels = c("negative", "neutral", "positive"))) %>% #relabeling negative, neutral, and positive proportions
+  dplyr::filter(!(proportion < 0 | proportion > 1)) %>% #filter out miscalculated proportions
+    drop_na(proportion)
+
+#plot proportion of each review that is negative, positive, and neutral
+df_vader_breakdown %>%
+  ggplot(aes(x = as.factor(review_id), y = proportion, fill = as.factor(sentiment_vader))) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("red3", "orange2", "gold")) +
+  labs(title = "Proportions of negative, neutral, and positive VADER sentiment across reviews",
+       subtitle = "These data underlie the compound VADER sentiment values.",
+       x = "Review",
+       y = "Proportion",
+       fill = "Sentiment (VADER)") +
+  ylim(0,1) +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  theme(axis.text.x=element_blank()) 
+```
+
+*Takeaways:* Reviews are mostly positive or neutral in their language used according to VADER. 
+
+```{r vader score}
+#plot association between vader linguistic sentiment and review score
+df_vader %>%
+  drop_na(sentiment_vader, score) %>%
+  ggplot(aes(y = as.numeric(sentiment_vader), x = as.factor(score), color = as.factor(score), fill = as.factor(score))) +
+  geom_jitter(size = 1, color = "gray") +
+  geom_violin(alpha = 0.7) +
+  scale_fill_manual(values = MetBrew_Egypt) +
+      scale_color_manual(values = MetBrew_Egypt) +
+  geom_boxplot(width = 0.1, color = "white") +
+  labs(x = "Review Score", y = "Review linguistic sentiment (VADER)") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+*Takeaways:* More positive linguistic sentiment via VADER is directionally associated with *much* better review scores. 
+
+```{r vader wordcount}
+#plot association between vader linguistic sentiment and review length
+df_vader %>%
+  subset(review_wordcount <= (84.64+(3*82.70))) %>% #subset to remove review length outliers more than 3 SD from average review length
+  drop_na(sentiment_vader, review_wordcount) %>%
+  ggplot(aes(y = as.numeric(sentiment_vader), x = as.numeric(review_wordcount))) +
+  geom_jitter(size = 1, color = "gray") +
+  geom_smooth(method = "loess") +
+  labs(x = "Review Wordcount", y = "Review linguistic sentiment (VADER)") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+*Takeaways:* Reviews have slightly more positive linguistic sentiment via VADER as they get longer, but are fairly positive in linguistic sentiment to begin with. 
+
+#### Method comparison: Using a sentiment lexicon (AFINN; Nielsen, 2011)
+
+```{r afinn}
+#select sentiment database - afinn
+AFINN <- tidytext:: get_sentiments("afinn")
+
+#join sentiment values to review data by word matches
+df_AFINN <- df_words %>%
+  inner_join(AFINN, by = c("word")) %>%
+  rename("sentiment_AFINN" = "value")
+
+#examine sentiment
+knitr::kable(skim(df_AFINN))
+
+#histogram of sentiment
+hist(df_AFINN$sentiment_AFINN)
+
+#see distribution of average AFINN sentiment across reviews
+df_AFINN %>%
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(average_sentiment_AFINN = mean(sentiment_AFINN),
+         primary_sent_direction = ifelse(average_sentiment_AFINN > 0, "positive", "negative")) %>% #create columns for average sentiment per review and average direction positive or negative
+  dplyr::ungroup() %>%
+  select(c(review_id, average_sentiment_AFINN, primary_sent_direction)) %>%
+  distinct() %>%
+  ggplot(aes(x = average_sentiment_AFINN, y = reorder(as.factor(review_id), average_sentiment_AFINN), color = as.factor(primary_sent_direction))) + #plot average sentiment scores with color by average direction
+  geom_col() +
+  scale_color_manual(values = c("red3", "green3")) +
+  labs(title = "Average AFINN sentiment distribution across reviews",
+       y = "Review",
+       x = "Average AFINN sentiment",
+       fill = "Sentiment (VADER)") +
+  theme_classic() +
+    theme(axis.text.y=element_blank()) +
+  theme(legend.position = "none")
+```
+
+*Takeaways:* Reviews are much more positive than negative in their linguistic sentiment according to AFINN. 
+
+```{r afinn score}
+#plot association between AFINN sentiment and review score
+df_AFINN %>%
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(average_sentiment_AFINN = mean(sentiment_AFINN)) %>%
+  dplyr::ungroup() %>%
+  select(c(review_id, average_sentiment_AFINN, score)) %>%
+  distinct() %>%
+  ggplot(aes(y = as.numeric(average_sentiment_AFINN), x = as.factor(score), color = as.factor(score), fill = as.factor(score))) +
+  geom_jitter(size = 1, color = "gray") +
+  geom_violin(alpha = 0.7) +
+  scale_fill_manual(values = MetBrew_Egypt) +
+      scale_color_manual(values = MetBrew_Egypt) +
+  geom_boxplot(width = 0.1, color = "white") +
+  labs(x = "Review Score", y = "Average linguistic sentiment (AFINN)") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+*Takeaways:* More positive linguistic sentiment via AFINN is directionally associated with *slightly* better review scores. 
+
+```{r afinn wordcount}
+#plot association between AFINN sentiment and review length
+df_AFINN %>%
+  subset(review_wordcount <= (84.64+(3*82.70))) %>% #subset to remove review length outliers more than 3 SD from average review length
+  dplyr::group_by(review_id) %>%
+  dplyr::mutate(average_sentiment_AFINN = mean(sentiment_AFINN)) %>%
+  dplyr::ungroup() %>%
+  drop_na(average_sentiment_AFINN, review_wordcount) %>%
+  ggplot(aes(y = as.numeric(average_sentiment_AFINN), x = as.numeric(review_wordcount))) +
+  geom_jitter(size = 1, color = "gray") +
+  geom_smooth(method = "loess") +
+  labs(x = "Review Wordcount", y = "Review linguistic sentiment (AFINN)") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+*Takeaways:* Reviews have similar linguistic sentiment via AFINN regardless of length. 
+
+## What did we learn?
+
+In this workshop, we:
+
+  * Set up a text analysis plan in R
+  
+  * Learned about how and why to use different text cleaning steps
+  
+  * Examined common experiences and painpoints discussed in a random subset of Amazon fine foods reviews (McAuley & Leskovec, 2013) using basic text analyses and visualizations, including:
+  
+     + Evaluation of most frequent words, bigrams, and associations between words in all reviews and those with high vs. low stars
+     
+     + Summarization of themes using topic modeling (LDA)
+    
+     + Examination of linguistic sentiment via sentiment analysis 
+     
+        + Comparison of multiple methods to highlight the importance of selecting use-case-appropriate methods
+      
+  * Developed meaningful business insights from a subset of unstructured review text data
+  
+Remember to carefully evaluate data sources and quality, clean text data in line with best practices, choose analyses that are best suited to your use case, and interpret results in context and keeping in mind that they are often observational.
+
+Happy text analyzing!
+
+## References & Additional Resources
+
+### Additional resources
+
+* [UPenn Library Guide to text analysis](https://guides.library.upenn.edu/penntdm/r)
+* [Text Mining with R book by Julia Silge and David Robinson](https://www.tidytextmining.com/)
+* [Supervised Machine Learning for Text Analysis in R book by Julia Silge and Emil Hvitfeldt](https://smltar.com/)
+* [An Introduction to Text Processing and Analysis with R vignette by Michael Clark](https://m-clark.github.io/text-analysis-with-R/)
+* [Ethics Sheet for Automatic Emotion Recognition and Sentiment Analysis (2022) by Saif Mohammad](https://arxiv.org/abs/2109.08256)
+* [stringr package Regular Expressions vignette](https://cran.r-project.org/web/packages/stringr/vignettes/regular-expressions.html)
+
+### References
+
+McAuley, J. & Leskovec, J. (2013). From amateurs to connoisseurs: modeling the evolution of user expertise through online reviews. WWW, 2013.
+
+Porter, M. F. 2001. “Snowball: A Language for Stemming Algorithms.” https://snowballstem.org.
+
+Blei, D. M., Ng, A. Y., & Jordan, M. I. (2003). Latent Dirichlet Allocation. Journal Of Machine Learning Research, 3(4/5), 993-1022. 
+  https://www.jmlr.org/papers/volume3/blei03a/blei03a.pdf
+
+Hutto, C., & Gilbert, E. (2014). VADER: A Parsimonious Rule-Based Model for Sentiment Analysis of Social Media Text. Proceedings of the   
+  International AAAI Conference on Web and Social Media, 8(1), 216-225. https://doi.org/10.1609/icwsm.v8i1.14550
+  
+Nielsen, F. Å. (2011) A new ANEW: Evaluation of a word list for sentiment analysis in microblogs. Proceedings of the ESWC2011 Workshop on 
+  'Making Sense of Microposts': Big things come in small packages 718 in CEUR Workshop Proceedings 93-98. 2011 May. http://arxiv.org/abs/1103.2903
+
+R Core Team (2025). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing, Vienna,
+  Austria. <https://www.R-project.org/>.
+  
+Wickham H, Averick M, Bryan J, Chang W, McGowan LD, François R, Grolemund G, Hayes A, Henry L, Hester J, Kuhn M, Pedersen TL,
+  Miller E, Bache SM, Müller K, Ooms J, Robinson D, Seidel DP, Spinu V, Takahashi K, Vaughan D, Wilke C, Woo K, Yutani H (2019).
+  “Welcome to the tidyverse.” _Journal of Open Source Software_, *4*(43), 1686. doi:10.21105/joss.01686
+  <https://doi.org/10.21105/joss.01686>.
+
+Wickham H (2023). _stringr: Simple, Consistent Wrappers for Common String Operations_. doi:10.32614/CRAN.package.stringr
+  <https://doi.org/10.32614/CRAN.package.stringr>, R package version 1.5.1, <https://CRAN.R-project.org/package=stringr>.
+
+Waring E, Quinn M, McNamara A, Arino de la Rubia E, Zhu H, Ellis S (2022). _skimr: Compact and Flexible Summaries of Data_.
+  doi:10.32614/CRAN.package.skimr <https://doi.org/10.32614/CRAN.package.skimr>, R package version 2.1.5,
+  <https://CRAN.R-project.org/package=skimr>.
+
+Silge J, Robinson D (2016). “tidytext: Text Mining and Analysis Using Tidy Data Principles in R.” _JOSS_, *1*(3).
+  doi:10.21105/joss.00037 <https://doi.org/10.21105/joss.00037>, <http://dx.doi.org/10.21105/joss.00037>.
+
+Rinker, T. W. (2018). textclean: Text Cleaning Tools version 0.9.3. Buffalo, New York. https://github.com/trinker/textclean
+
+Fellows I (2018). _wordcloud: Word Clouds_. doi:10.32614/CRAN.package.wordcloud
+  <https://doi.org/10.32614/CRAN.package.wordcloud>, R package version 2.6, <https://CRAN.R-project.org/package=wordcloud>
+  
+Feinerer I, Hornik K (2025). _tm: Text Mining Package_. doi:10.32614/CRAN.package.tm
+  <https://doi.org/10.32614/CRAN.package.tm>, R package version 0.7-16, <https://CRAN.R-project.org/package=tm>.
+  
+Roehrick K (2020). _vader: Valence Aware Dictionary and sEntiment Reasoner (VADER)_. doi:10.32614/CRAN.package.vader
+  <https://doi.org/10.32614/CRAN.package.vader>, R package version 0.2.1, <https://CRAN.R-project.org/package=vader>.
+
+Grün B, Hornik K (2011). “topicmodels: An R Package for Fitting Topic Models.” Journal of Statistical Software, 40(13), 1–30. 
+  doi:10.18637/jss.v040.i13.
+  
+Mills BR (2022). _MetBrewer: Color Palettes Inspired by Works at the Metropolitan Museum of Art_.
+  doi:10.32614/CRAN.package.MetBrewer <https://doi.org/10.32614/CRAN.package.MetBrewer>, R package version 0.2.0,
+  <https://CRAN.R-project.org/package=MetBrewer>.
+  
+Posit team (2025). RStudio: Integrated Development Environment for R. Posit Software, PBC, Boston, MA. URL http://www.posit.co/.
+  
+```{r, echo = F}
+sessioninfo::session_info()
+```
