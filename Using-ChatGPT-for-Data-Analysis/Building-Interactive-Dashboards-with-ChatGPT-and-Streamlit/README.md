@@ -1,2 +1,2 @@
-# sales_data_dashboard
+# customer_sales_data_dashboard
 Data dashboard for customer sales data
